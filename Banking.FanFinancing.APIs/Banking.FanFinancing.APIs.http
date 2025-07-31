@@ -1,0 +1,6 @@
+@Banking.FanFinancing.APIs_HostAddress = http://localhost:5288
+
+GET {{Banking.FanFinancing.APIs_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

@@ -1,13 +1,42 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.13.35919.96 d17.13
+VisualStudioVersion = 17.13.35919.96
 MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Banking.FanFinancing.Domain", "Banking.FanFinancing.Domain\Banking.FanFinancing.Domain.csproj", "{87D19B57-8BAB-4C34-B6E3-4B6A0456A39C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Banking.FanFinancing.Infrastructure", "Banking.FanFinancing.Infrastructure\Banking.FanFinancing.Infrastructure.csproj", "{C77D98D4-848C-4CB6-8EC5-1C0ED9F365FA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Banking.FanFinancing.APIs", "Banking.FanFinancing.APIs\Banking.FanFinancing.APIs.csproj", "{7EEE28B7-D474-4B73-A81D-59892C86BB54}"
+EndProject
+Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "Banking.FanFinancing.Shared", "Banking.FanFinancing.Shared\Banking.FanFinancing.Shared.shproj", "{AC4CE20C-634B-4481-9937-C38C8FDD09B9}"
+EndProject
 Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{87D19B57-8BAB-4C34-B6E3-4B6A0456A39C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{87D19B57-8BAB-4C34-B6E3-4B6A0456A39C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{87D19B57-8BAB-4C34-B6E3-4B6A0456A39C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{87D19B57-8BAB-4C34-B6E3-4B6A0456A39C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C77D98D4-848C-4CB6-8EC5-1C0ED9F365FA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C77D98D4-848C-4CB6-8EC5-1C0ED9F365FA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C77D98D4-848C-4CB6-8EC5-1C0ED9F365FA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C77D98D4-848C-4CB6-8EC5-1C0ED9F365FA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7EEE28B7-D474-4B73-A81D-59892C86BB54}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7EEE28B7-D474-4B73-A81D-59892C86BB54}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7EEE28B7-D474-4B73-A81D-59892C86BB54}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7EEE28B7-D474-4B73-A81D-59892C86BB54}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {D2F4CEB1-6862-4BA8-96F5-2B9B1A1E99F9}
+	EndGlobalSection
+	GlobalSection(SharedMSBuildProjectFiles) = preSolution
+		Banking.FanFinancing.Shared\Banking.FanFinancing.Shared.projitems*{ac4ce20c-634b-4481-9937-c38c8fdd09b9}*SharedItemsImports = 13
 	EndGlobalSection
 EndGlobal
