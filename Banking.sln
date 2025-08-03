@@ -38,5 +38,6 @@ Global
 	EndGlobalSection
 	GlobalSection(SharedMSBuildProjectFiles) = preSolution
 		Banking.FanFinancing.Shared\Banking.FanFinancing.Shared.projitems*{ac4ce20c-634b-4481-9937-c38c8fdd09b9}*SharedItemsImports = 13
+		Banking.FanFinancing.Shared\Banking.FanFinancing.Shared.projitems*{c77d98d4-848c-4cb6-8ec5-1c0ed9f365fa}*SharedItemsImports = 5
 	EndGlobalSection
 EndGlobal

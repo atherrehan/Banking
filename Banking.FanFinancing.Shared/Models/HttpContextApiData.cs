@@ -1,6 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
-
-namespace Banking.FanFinancing.Shared.Models
+﻿namespace Banking.FanFinancing.Shared.Models
 {
     public class HttpContextApiData
     {
