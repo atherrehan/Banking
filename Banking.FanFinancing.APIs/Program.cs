@@ -1,5 +1,4 @@
 using Banking.FanFinancing.Shared.Models;
-using Microsoft.OpenApi.Models;
 using Banking.FanFinancing.Shared.Middleware;
 using Banking.FanFinancing.Shared.Configs;
 using Serilog;
@@ -7,6 +6,7 @@ using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Banking.FanFinancing.Infrastructure;
 using Banking.FanFinancing.Domain;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options =>
@@ -28,6 +28,7 @@ services.AddControllers().AddJsonOptions(options =>
     options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
 
 });
+builder.Services.AddOpenApi();
 builder.Services.AddRateLimiter(options =>
 {
     options.AddPolicy("IPPolicy", context =>
@@ -68,6 +69,11 @@ DomainDependencies.AllDependencies(services, builder.Configuration);
 
 
 var app = builder.Build();
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();               // exposes /openapi/v1.json
+    app.MapScalarApiReference();    // hosts UI at /scalar/v1
+}
 app.UseRateLimiter();
 
 app.UseMiddleware<ExceptionMiddleware>();
@@ -75,6 +81,7 @@ app.UseMiddleware<ExceptionMiddleware>();
 app.UseMiddleware<AuthMiddleware>();
 
 app.UseAuthorization();
+app.UseHttpsRedirection();
 
 app.MapControllers();
 

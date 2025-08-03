@@ -23,7 +23,9 @@ namespace Banking.FanFinancing.Shared.Middleware
         {
             _gUIDService = guidService;
             var isAllowAnonymous = context.Features.Get<IEndpointFeature>()?.Endpoint?.Metadata.Any(x => x.GetType() == typeof(AllowAnonymousAttribute));
-            if (!(isAllowAnonymous.HasValue && isAllowAnonymous.Value))
+            var ep = context.Request.Path.Value?.ToString() ?? "";
+           
+            if (!ep.Equals("/openapi/v1.json") && !ep.Equals("/favicon.ico") && !ep.Contains("scalar") && (!(isAllowAnonymous.HasValue && isAllowAnonymous.Value)))
             {
                 var token = context.Request.Headers.TryGetValue("authToken", out var AuthHeader) ? AuthHeader.ToString() ?? "" : "";
                 if (string.IsNullOrEmpty(token) && !context.Request.Path.ToString().Contains("/GenerateAuth"))
