@@ -20,7 +20,7 @@ namespace Banking.FanFinancing.Infrastructure.Repository
         public async Task<(KiborResponseEntity? ModelData, int? StatusCode, string? CompleteResponse, bool? IsSuccessStatusCode)> Kibor(string source, HttpContextApiData httpContext)
         {
             ApiUrl? url = await _dbContext.GetURL("Kibor");
-            if (url.URL.Equals("url_kibor") || httpContext.Endpoint.Equals("localhost:5501") || httpContext.Endpoint.Equals("139.59.88.149:5501"))
+            if (url.URL.Equals("url_kibor") || httpContext.Endpoint.Equals("localhost:5501"))
             {
                 return (new KiborResponseEntity() { status = "200", message = "Url not found", data = new() { rate = "12.37" } }, 200, "", true);//Remove this if block once url are provided
 
@@ -41,7 +41,7 @@ namespace Banking.FanFinancing.Infrastructure.Repository
         public async Task<(DataCheckResponseEntity? ModelData, int? StatusCode, string? CompleteResponse, bool? IsSuccessStatusCode)> DataCheck(DataCheckRequestEntity apiRequest, string source, HttpContextApiData httpContext)
         {
             ApiUrl? url = await _dbContext.GetURL("DataCheck");
-            if (url.URL.Equals("url_datacheck") || httpContext.Endpoint.Equals("localhost:5501") || httpContext.Endpoint.Equals("139.59.88.149:5501"))
+            if (url.URL.Equals("url_datacheck") || httpContext.Endpoint.Equals("localhost:5501"))
             {
                 return (new DataCheckResponseEntity() { Report = new() { CCP_SUMMARY_TOTAL = [] }, Status = "00" }, 200, "", true);//Remove this if block once url are provided
 
@@ -62,7 +62,7 @@ namespace Banking.FanFinancing.Infrastructure.Repository
         public async Task<(ScreeningResponseEntity? ModelData, int? StatusCode, string? CompleteResponse, bool? IsSuccessStatusCode)> Screening(ScreeningRequestEntity apiRequest, string source, HttpContextApiData httpContext)
         {
             ApiUrl? url = await _dbContext.GetURL("Acl");
-            if (url.URL.Equals("url_screening") || httpContext.Endpoint.Equals("localhost:5501") || httpContext.Endpoint.Equals("139.59.88.149:5501"))
+            if (url.URL.Equals("url_screening") || httpContext.Endpoint.Equals("localhost:5501"))
             {
                 var screeningResponse = new ScreeningResponseEntity
                 {
