@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Banking.FanFinancing.Infrastructure\Banking.FanFinancing.Infrastructure.csproj" />
+  </ItemGroup>
+
 </Project>
