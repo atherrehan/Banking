@@ -71,8 +71,8 @@ DomainDependencies.AllDependencies(services, builder.Configuration);
 var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();               // exposes /openapi/v1.json
-    app.MapScalarApiReference();    // hosts UI at /scalar/v1
+    app.MapOpenApi();              
+    app.MapScalarApiReference(opt => opt.WithTitle("Banking Fan Financing APIs").WithTheme(ScalarTheme.Mars).WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient));   
 }
 app.UseRateLimiter();
 
