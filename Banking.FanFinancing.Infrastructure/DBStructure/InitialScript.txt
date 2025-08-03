@@ -1,0 +1,3498 @@
+﻿create database [Banking_FanFinancing_App]
+go
+USE [Banking_FanFinancing_App]
+GO
+/****** Object:  UserDefinedTableType [dbo].[utt_eligibility_billing]    Script Date: 8/3/2025 11:33:47 AM ******/
+CREATE TYPE [dbo].[utt_eligibility_billing] AS TABLE(
+	[bill_month] [varchar](30) NULL,
+	[billing_date] [varchar](20) NULL,
+	[due_date] [varchar](20) NULL,
+	[bill_amount] [int] NULL,
+	[actual_payment_date] [varchar](20) NULL,
+	[actual_payment_amount] [int] NULL,
+	[late_payment_amount] [int] NULL,
+	[late_payment_count] [int] NULL
+)
+GO
+/****** Object:  UserDefinedFunction [dbo].[fn_check_eligibility]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--select * from fn_check_eligibility('4430339164944','03332504533','12333336543','138402611','231452116','8913','f19ea4e4-5326-449e-a4ef-1bc5c4c4249f','')          
+CREATE FUNCTION [dbo].[fn_check_eligibility]                            
+(                            
+@CustomerCNIC varchar(100),                            
+@MobileNumber varchar(100),                            
+@TransactionId varchar(100),                            
+@ConsumerNumber varchar(100),              
+@BillReferenceNumber varchar(40),              
+@MeterNumber varchar(100),          
+@SessionId varchar(100),                          
+@Token varchar(1000)            
+)                            
+RETURNS @Table TABLE (             
+Id bigint,                     
+CustomerId bigint,          
+OrderId bigint,          
+MeterId bigint,          
+ResponseCode varchar(10),                            
+ResponseMessage NVARCHAR(150)                            
+)                            
+AS                            
+BEGIN            
+          
+if @SessionId='' or @Token=''                          
+begin                          
+insert into @Table(ResponseCode,ResponseMessage)values('03','Your application cannot be processed at the moment. Please try again later.')                          
+return                          
+end                          
+                          
+--declare @TokenSessionId bigint=(select top (1) Id from token_session where [session_id]=@SessionId and Token=@Token and is_deleted=0)                          
+declare @TokenSessionId bigint=(select top (1) Id from token_session where Token=@Token and is_deleted=0)                          
+if @TokenSessionId is null                           
+begin                          
+insert into @Table(ResponseCode,ResponseMessage)values('03','Your application cannot be processed at the moment. Please try again later.')                          
+return                          
+end      
+    
+--else    
+--begin    
+--declare @AuthCustomerId bigint=(select top (1) customers_id from auth_session where token_session_id=@TokenSessionId and is_deleted=0)    
+--if @AuthCustomerId is not null    
+--begin    
+--declare  @CurrentCnic varchar(15),@CurrentMobile varchar(13);    
+--select @CurrentCnic=cnic,@CurrentMobile=mobile from customers where id=@AuthCustomerId and is_deleted=0    
+    
+--if @CurrentCnic<>@CustomerCNIC or @CurrentMobile<>@MobileNumber    
+--begin    
+--insert into @Table(ResponseCode,ResponseMessage)values('03','Your application cannot be processed at the moment. Please try again later.')                          
+--return     
+--end    
+--end    
+--end
+    
+          
+if exists(select top (1) Id from customers where mobile=@MobileNumber and cnic<>@CustomerCNIC and is_deleted=0)                          
+begin                          
+insert into @Table(ResponseCode,ResponseMessage)values('99','Mobile already registered with another CNIC.')                          
+return                          
+end                          
+if exists(select top (1) Id from customers where cnic=@CustomerCNIC and mobile<>@MobileNumber and is_deleted=0)                          
+begin                          
+insert into @Table(ResponseCode,ResponseMessage)values('99','Cnic already registered with another mobile.')                          
+return                          
+end                      
+declare @OrderId bigint,@MeterId bigint;       
+declare @CustomerId bigint =(select top (1) id from customers where mobile=@MobileNumber and cnic=@CustomerCnic and is_deleted=0)           
+if @CustomerId is not null          
+begin          
+select @OrderId=id from orders where customers_id=@CustomerId and is_deleted=0          
+select @MeterId=id from meters where customers_id=@CustomerId and is_deleted=0          
+          
+if exists(select top (1) id from orders where transaction_id=@TransactionId and id<>@OrderId and is_deleted=0)          
+begin          
+insert into @Table(ResponseCode,ResponseMessage)values('99','TransactionId already associated with another customer.')                          
+return          
+end          
+          
+if exists(select top (1) id from meters where (consumer_number=@ConsumerNumber or bill_reference_number=@BillReferenceNumber or meter_number=@MeterNumber) and id<>@MeterId and is_deleted=0)          
+begin          
+insert into @Table(ResponseCode,ResponseMessage)values('99','Bill reference number or consumer number already associated with another customer.')                          
+return          
+end          
+else                            
+begin                            
+insert into @Table(ResponseCode,ResponseMessage,CustomerId,OrderId,MeterId,Id)values('00','Customer is Eligible for financing',@CustomerId,@OrderId,@MeterId,@TokenSessionId)                       
+--insert into @Table(ResponseCode,ResponseMessage,CustomerId,OrderId,MeterId)values('00','Customer is Eligible for financing',@CustomerId,@OrderId,@MeterId)             
+return                            
+end             
+end                    
+else                            
+begin                            
+insert into @Table(ResponseCode,ResponseMessage,CustomerId,OrderId,MeterId,Id)values('00','Customer is Eligible for financing',@CustomerId,@OrderId,@MeterId,@TokenSessionId)           
+--insert into @Table(ResponseCode,ResponseMessage,CustomerId,OrderId,MeterId)values('00','Customer is Eligible for financing',@CustomerId,@OrderId,@MeterId)        
+return                            
+end                            
+                            
+RETURN                            
+END 
+GO
+/****** Object:  UserDefinedFunction [dbo].[fn_check_repayment]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--select * from fn_check_repayment('138402611','7188.27','LD4097312366')          
+CREATE FUNCTION [dbo].[fn_check_repayment]          
+(          
+@BillConsumerNumber varchar(100)='',          
+@RepaymentAmount varchar(150)=''      
+)          
+RETURNS @Table TABLE (          
+CustomerId bigint,          
+MeterId bigint, 
+Tenure tinyint,
+OutstandingAmount varchar(20),    
+LdRefNo varchar(50),  
+ResponseCode varchar(10),          
+ResponseMessage NVARCHAR(150)          
+)          
+AS          
+BEGIN          
+          
+if @BillConsumerNumber='' or @RepaymentAmount=''      
+begin          
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Required fields are missing.')          
+return          
+end          
+          
+declare @CustomerId bigint, @MeterId bigint,@LdRefNo varchar(50);          
+select top (1) @MeterId=id,@CustomerId=customers_id from meters where consumer_number=@BillConsumerNumber and is_deleted=0          
+    
+          
+if @CustomerId=0 or not exists(select top(1) id from customers where id=@CustomerId and is_deleted=0)          
+begin          
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Invalid detail.')          
+return          
+end          
+          
+if @MeterId is null or @MeterId =0 or not exists(select top (1) id from meters where id=@MeterId and is_deleted=0)          
+begin          
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Invalid detail.')          
+return  
+return          
+end      
+  
+select top(1) @LdRefNo= ld_ref from orders where customers_id=@CustomerId and is_deleted=0  
+  
+if @LdRefNo is null or @LdRefNo=''  
+begin  
+insert into @Table(ResponseCode,ResponseMessage) values ('99','LdRef not found.')          
+return  
+end   
+    
+declare @FirstInstallment varchar(20), @SubSequentInstallment varchar(20), @TotalAmountDue varchar(20),@AlreadyPaid tinyint;    
+    
+SELECT @FirstInstallment=first_month_installment,@SubSequentInstallment=subsequent_monthly_installment,@TotalAmountDue=total_amount_due FROM financing where customers_id=@CustomerId and is_deleted=0    
+    
+select @AlreadyPaid=count(1) from repayments where customers_id=@CustomerId and is_deleted=0    
+    
+if @AlreadyPaid=0    
+begin    
+if @RepaymentAmount <>@FirstInstallment and @RepaymentAmount<>@TotalAmountDue    
+begin    
+insert into @Table(ResponseCode,ResponseMessage,CustomerId,MeterId)values ('99','Invalid repaymentAmount',@CustomerId,@MeterId)          
+return          
+end    
+end    
+    
+if @AlreadyPaid>0    
+begin    
+if @RepaymentAmount <>@SubSequentInstallment and @RepaymentAmount<>@TotalAmountDue    
+begin    
+insert into @Table(ResponseCode,ResponseMessage,CustomerId,MeterId)values ('99','Invalid repaymentAmount',@CustomerId,@MeterId)          
+return          
+end    
+end    
+    
+declare @Tenure int =(select top(1) tenure from orders where customers_id=@CustomerId and is_deleted=0)    
+if @AlreadyPaid >=@Tenure    
+begin    
+insert into @Table(ResponseCode,ResponseMessage,CustomerId,MeterId)values ('99','No installments reamining, account already settled',@CustomerId,@MeterId)          
+return      
+end    
+    
+else          
+begin          
+declare @OutstandingAmount varchar(20)=try_cast(@TotalAmountDue as decimal(18,2))- try_cast(@RepaymentAmount as decimal(18,2));  
+insert into @Table(ResponseCode,ResponseMessage,CustomerId,MeterId,Tenure,OutstandingAmount,LdRefNo)values ('200','Success',@CustomerId,@MeterId,@Tenure,@OutstandingAmount,@LdRefNo)          
+return          
+end          
+          
+RETURN          
+END  
+GO
+/****** Object:  UserDefinedFunction [dbo].[fn_check_repayment_schedule]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--select * from fn_check_repayment_schedule('4430339164944','03332504533','K electric','LD2034381798','123456','138402611')    
+CREATE FUNCTION [dbo].[fn_check_repayment_schedule]    
+(                      
+@CustomerCnic varchar(50),                      
+@MobileNumber varchar(50),                      
+@CompanyName varchar(50),                      
+@LdRefNo varchar(50),        
+@OrderID varchar(50),        
+@BillConsumerNumber varchar(50)    
+)                      
+RETURNS @Table TABLE (                     
+ CustomerId bigint,
+ OrderId bigint,
+ ResponseCode varchar(10),                      
+ ResponseMessage NVARCHAR(150)                      
+)                      
+AS                      
+BEGIN                      
+                    
+if @CustomerCnic='' or @MobileNumber='' or  @CompanyName='' or @LdRefNo=''    or  @OrderID='' or @BillConsumerNumber=''                    
+begin                    
+insert into @Table(ResponseCode,ResponseMessage)values('99','Required input is missing.')                    
+return                    
+end                    
+  declare @CustomerId bigint=(select top (1) id from customers where mobile=@MobileNumber and cnic=@CustomerCNIC and is_deleted=0)                         
+if @CustomerId is null    
+begin                    
+insert into @Table(ResponseCode,ResponseMessage)values('99','Invlaid customerCNIC/mobileNumber.')                    
+return                    
+end 
+
+declare @OrdersId bigint=(select top (1) id from orders where customers_id=@CustomerId and is_deleted=0) 
+if @OrdersId is null
+begin
+insert into @Table(ResponseCode,ResponseMessage)values('99','Order not found.')                    
+return 
+end
+
+if not exists(select top (1) Id from meters where customers_id=@CustomerId and company_name=@CompanyName and consumer_number=@BillConsumerNumber and is_deleted=0)                    
+begin                    
+insert into @Table(ResponseCode,ResponseMessage)values('99','Invlaid companyName/billConsumerNumber.')                    
+return                    
+end       
+    
+if not exists(select top (1) 1 from orders where customers_id=@CustomerId and ld_ref=@LdRefNo and is_deleted=0)                    
+begin                    
+insert into @Table(ResponseCode,ResponseMessage)values('99','Invlaid LDRefNo.')                    
+return                    
+end       
+    
+    
+if not exists(select top (1) 1 from orders where customers_id=@CustomerId and order_id=@OrderID and is_deleted=0)                    
+begin                    
+insert into @Table(ResponseCode,ResponseMessage)values('99','Invlaid orderID.')                    
+return                    
+end       
+    
+else    
+begin    
+insert into @Table(ResponseCode,ResponseMessage,CustomerId,OrderId)values('200','Success',@CustomerId,@OrdersId)                    
+return        
+end    
+    
+RETURN                      
+END
+GO
+/****** Object:  UserDefinedFunction [dbo].[fn_validate_customer_by_transaction]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--select * from fn_validate_customer_by_transaction('1235','352016814567','03234333299')        
+CREATE function [dbo].[fn_validate_customer_by_transaction]        
+(        
+@TransactionId varchar(20)='',        
+@Cnic varchar(15)='',        
+@Mobile varchar(15)=''        
+)        
+returns @Table Table        
+(        
+ResponseCode varchar(20),        
+ResponseMessage nvarchar(255)        
+)        
+as        
+begin        
+if @TransactionId='' or @Cnic='' or @Mobile=''        
+begin        
+insert into @Table(ResponseCode,ResponseMessage)values('99','Required fields are missing.')        
+return        
+end        
+declare @CustomerId bigint, @EligbilityDateTime datetime;
+select top (1) @CustomerId=customers_id, @EligbilityDateTime=created_at from orders where transaction_id=@TransactionId and is_deleted=0        
+if @CustomerId is not null 
+begin        
+if (select DATEDIFF(day,getdate(),@EligbilityDateTime))>30 
+begin
+insert into @Table(ResponseCode,ResponseMessage)values('99','Assigned limit has expired.')        
+return        
+end
+
+if not exists(select top (1) Id from customers where id=@CustomerId and cnic=@Cnic and mobile=@Mobile and is_deleted=0)        
+begin        
+insert into @Table(ResponseCode,ResponseMessage)values('99','Invalid customer details against the provided Transaction Id.')        
+return        
+end        
+else        
+begin        
+insert into @Table(ResponseCode,ResponseMessage)values('00','Success')        
+return        
+end        
+end        
+        
+else        
+begin        
+        
+set @CustomerId =(select top (1) id from customers where (cnic=@Cnic or mobile=@Mobile) and is_deleted=0)        
+if @CustomerId is not null        
+begin        
+insert into @Table(ResponseCode,ResponseMessage)values('99','Invalid Transaction Id against the provided Customer detail.')        
+return        
+end        
+else        
+begin        
+insert into @Table(ResponseCode,ResponseMessage)values('00','Success')        
+return        
+end        
+end        
+        
+return        
+end 
+GO
+/****** Object:  UserDefinedFunction [dbo].[fn_validate_disbursement]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--select * from fn_validate_disbursement('','','','','')              
+CREATE FUNCTION [dbo].[fn_validate_disbursement]              
+(                          
+@OrderRef varchar(150)='',              
+@TransactionId varchar(150)='',                  
+@AgreementStatus NVARCHAR(50)='',                  
+@VendorAcceptanceStatus NVARCHAR(100)='',                  
+@CustomerAcceptanceStatus NVARCHAR(100) ='',        
+@ModeOfFinancing varchar(20)='',        
+@BillConsumerNumber varchar(50)='',        
+@BillReferenceNumber varchar(50)='',   
+@CustomerCnic varchar(15)='',  
+@VendorIBAN varchar(24)='',        
+@FanQty varchar(20)='',        
+@TotalFanCost varchar(20)='',        
+@Tenure varchar(20)='',        
+@OrderAmount varchar(20)=''        
+)                          
+RETURNS @Table TABLE (                          
+ OrderId bigint,                        
+ VendorId bigint,                 
+ CustomerId bigint,              
+ AssignedLimit varchar(20),              
+ FinancingAmount varchar(20),              
+ FirstInstallment varchar(20),              
+ SubsequentInstallment varchar(20),    
+ AmountDue varchar(20), 
+ ProposalNo varchar(50),
+ FinancingAccountNumber varchar(24),
+ ResponseCode varchar(10),                          
+ ResponseMessage NVARCHAR(150)                          
+)                          
+AS                          
+BEGIN                          
+if @OrderRef='' or  @TransactionId='' or @AgreementStatus<>'Yes' or @VendorAcceptanceStatus<>'Accept' or @CustomerAcceptanceStatus<>'Accept' or @ModeOfFinancing='' or        
+@BillConsumerNumber='' or @BillReferenceNumber='' or @VendorIBAN='' or @FanQty='' or @TotalFanCost='' or @Tenure='' or @OrderAmount='' or @CustomerCnic=''       
+begin                        
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Required fields are missing or invalid.')                          
+return                        
+end                             
+        
+
+declare @OrderId bigint,@VendorId bigint,@CustomerId bigint, @CurrentFanQty varchar(20),@CurrentTotalFanCost varchar(20),@CurrentTenure varchar(20),@CurrentOrderAmount varchar(20),@CurrentBillConsumerNumber varchar(50),@CurrentBillReferenceNumber varchar(50),@Proposal varchar(50),@FinancingAccountNumber varchar(24);
+select top (1) @OrderId=Id,@VendorId=vendors_id,@CustomerId=customers_id,@CurrentFanQty=quantity,@CurrentTotalFanCost=total_cost,@CurrentTenure=tenure,@CurrentOrderAmount=order_amount from orders where transaction_id=@TransactionId and is_deleted=0       
+select top (1) @Proposal=ProposalNo,@FinancingAccountNumber=NCANo from tbl_FRP_Request where CustomerID=@CustomerId and IsActive=1
+          
+if @OrderId is null or @CustomerId is null or @VendorId is null                     
+begin                          
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Invalid order.')                          
+return                          
+end                         
+
+if @Proposal is null or @Proposal ='' or @FinancingAccountNumber is null or @FinancingAccountNumber='' 
+begin
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Request in process and awaiting approval')                          
+return
+end
+       
+if not exists(select top (1) id from customers where id=@CustomerId and mode_of_financing=@ModeOfFinancing and cnic=@CustomerCnic and is_deleted=0)        
+begin        
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Invalid modeOfFinancing.')                          
+return          
+end        
+select top(1) @CurrentBillConsumerNumber=consumer_number,@CurrentBillReferenceNumber=bill_reference_number  from meters where customers_id=@CustomerId and is_deleted=0        
+if (@CurrentBillConsumerNumber<>@BillConsumerNumber)        
+begin        
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Invalid billConsumerNumber.')                          
+return          
+end        
+if (@CurrentBillReferenceNumber<>@BillReferenceNumber)        
+begin        
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Invalid billReferenceNumber.')                          
+return          
+end        
+if not exists(select top (1) id from vendors where id=@VendorId and iban=@VendorIBAN and is_deleted=0)        
+begin        
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Invalid vendorIBAN.')                          
+return          
+end        
+        
+if @CurrentFanQty<>@FanQty        
+begin        
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Invalid fanQty.')                          
+return        
+end        
+        
+if @CurrentTotalFanCost<>@TotalFanCost        
+begin        
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Invalid totalFanCost.')                          
+return        
+end        
+if @CurrentTenure<>@Tenure        
+begin        
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Invalid tenure.')                          
+return        
+end        
+if @CurrentOrderAmount<>@OrderAmount        
+begin        
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Invalid orderAmount.')                          
+return        
+end                        
+begin                 
+if not exists(select top (1) Id from customer_otp where customers_id=@CustomerId and is_verified=1 and is_deleted<>1 order by created_at desc)              
+begin              
+insert into @Table(ResponseCode,ResponseMessage)values ('99','OTP not verified.')           
+return        
+end
+else              
+begin              
+declare  @AssignedLimit varchar(20),@FinancingAmount varchar(20),@FirstInstallment varchar(20),@SubsequentInstallment varchar(20),@AmountDue varchar(20);    
+select top(1) @AssignedLimit=assigned_limit from eligibility where orders_id=@OrderId and is_deleted=0              
+select top (1) @FinancingAmount=net_financing_amount,@FirstInstallment=first_month_installment,@SubsequentInstallment=subsequent_monthly_installment from financing where orders_id=@OrderId and is_deleted=0           
+    
+SELECT @AmountDue = (TRY_CAST(@FirstInstallment AS DECIMAL(18,2))+(TRY_CAST(@SubsequentInstallment AS DECIMAL(18,2))*TRY_CAST(@Tenure -1 AS int)))    
+    
+    
+insert into @Table(ResponseCode,ResponseMessage,OrderId,VendorId,CustomerId,AssignedLimit,FinancingAmount,FirstInstallment,SubsequentInstallment,AmountDue,ProposalNo,FinancingAccountNumber)values ('200','Success',@OrderId,@VendorId,@CustomerId,@AssignedLimit,@FinancingAmount,@FirstInstallment,@SubsequentInstallment,@AmountDue,@Proposal,@FinancingAccountNumber)                          
+return                    
+end              
+end                                   
+RETURN                          
+END 
+
+GO
+/****** Object:  UserDefinedFunction [dbo].[fn_validate_generate_otp]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--select * from fn_validate_generate_otp('03234333298','3520168143568')          
+CREATE function [dbo].[fn_validate_generate_otp]          
+(          
+@Mobile varchar(15)='',          
+@Cnic varchar(15)=''          
+)          
+returns @Table table          
+(          
+ResponseCode varchar(20),          
+ResponseMessage nvarchar(255),          
+CustomerId bigint,      
+Expiry smallint  
+)          
+as          
+begin          
+          
+if @Mobile='' or @Cnic=''          
+begin          
+insert into @Table(ResponseCode,ResponseMessage)values('99','Required fields are missing.')          
+return          
+end          
+          
+declare @Id bigint,@Unblock bit=0;  
+select top (1) @Id= id from customers where mobile=@Mobile and cnic=@Cnic and is_deleted=0         
+if @Id is null          
+begin          
+insert into @Table(ResponseCode,ResponseMessage)values('99','Customer not found.')          
+return          
+end          
+  
+declare @IsBlocked bit, @UnBlockAt datetime  
+  
+Select top(1) @IsBlocked=is_blocked,@UnBlockAt=un_block_at from customer_otp where customers_id=@Id and is_deleted=0 order by created_at desc  
+        
+if @IsBlocked =1 and @UnBlockAt>getdate()  
+begin        
+insert into @Table(ResponseCode,ResponseMessage)values('99','Customer is blocked.')          
+return          
+end  
+  
+  
+declare @Expiry smallint =(select top (1) [value] from configs where title='Sms expiry' and is_deleted=0)              
+declare @AllowedSmsCount  tinyint= (select [value] from configs where title='Sms' and is_deleted=0)          
+declare @TodaySmsCount tinyint=(select count(1) from customer_otp where customers_id=@Id and convert(date,created_at)=convert(date,getdate()) and is_deleted=0)          
+          
+if @TodaySmsCount>=@AllowedSmsCount          
+begin          
+insert into @Table(ResponseCode,ResponseMessage)values('99','Sms limit exceeded. Please try again tomorrow.')          
+return          
+end          
+declare @LastOtpCreatedAt datetime= (select top (1) created_at from customer_otp where customers_id=@Id  and is_expired=0 and is_verified=0 and is_deleted=0)          
+if @LastOtpCreatedAt is not null          
+begin          
+if @Expiry is not null           
+begin          
+declare @SecondsElapsed int=(select DATEDIFF(second,@LastOtpCreatedAt,getdate()))          
+if @SecondsElapsed<@Expiry          
+begin          
+insert into @Table(ResponseCode,ResponseMessage)values('99','You already have an active otp request, please try again shortly.')          
+return          
+end          
+else          
+begin          
+insert into @Table(ResponseCode,ResponseMessage,CustomerId,Expiry)values('00','Success',@Id,@Expiry)          
+return          
+end          
+end          
+else          
+begin          
+insert into @Table(ResponseCode,ResponseMessage,CustomerId,Expiry)values('00','Success',@Id,@Expiry)          
+return          
+end          
+end          
+else          
+begin          
+insert into @Table(ResponseCode,ResponseMessage,CustomerId,Expiry)values('00','Success',@Id,@Expiry)          
+return          
+end          
+          
+return          
+end 
+GO
+/****** Object:  UserDefinedFunction [dbo].[fn_validate_otp]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--select * from fn_validate_otp('03234333211','3520168143511','12345')              
+CREATE function [dbo].[fn_validate_otp]              
+(              
+@Mobile varchar(15)='',              
+@Cnic varchar(15)='',              
+@Otp varchar(10)=''              
+)              
+returns @Table table              
+(              
+ResponseCode varchar(20),              
+ResponseMessage nvarchar(255),              
+CustomerId bigint,             
+OtpId bigint,          
+Attempts tinyint,              
+AllowedAttempts tinyint,  
+BlockTill tinyint  
+)              
+as              
+begin              
+              
+if @Mobile='' or @Cnic='' or @Otp=''              
+begin              
+insert into @Table(ResponseCode,ResponseMessage)values('404','Required fields are missing.')              
+return              
+end              
+              
+declare @CustomerId bigint,@IsBlocked bit;          
+--select top (1) @CustomerId= id, @IsBlocked=is_blocked from customers where mobile=@Mobile and cnic=@Cnic and is_deleted=0            
+select top (1) @CustomerId= id from customers where mobile=@Mobile and cnic=@Cnic and is_deleted=0            
+  
+if @CustomerId is null              
+begin              
+insert into @Table(ResponseCode,ResponseMessage)values('404','Customer not found.')              
+return              
+end              
+          
+if not exists(select top (1) Id from customer_otp where customers_id=@CustomerId and is_verified=0 and is_deleted=0  order by created_at desc)  
+begin  
+insert into @Table(ResponseCode,ResponseMessage)values('0404','Invalid/Expired OTP')              
+return          
+end  
+                          
+declare @OtpId bigint, @CustomerOtp varchar(10),  @LastOtpCreatedAt datetime, @Attempts tinyint,@UnBlockAt datetime,@IsExpired bit,@IsVerified bit;            
+    
+select  top (1) @OtpId=id, @CustomerOtp=otp, @Attempts=isnull(attempts,0), @LastOtpCreatedAt= created_at,@IsBlocked=is_blocked,@UnBlockAt=un_block_at,@IsExpired=is_expired,@IsVerified=is_verified from customer_otp where customers_id=@CustomerId and is_deleted=0 order by created_at desc              
+  
+if @IsBlocked = 1 and @UnBlockAt>getdate()         
+begin          
+insert into @Table(ResponseCode,ResponseMessage)values('400','Customer is blocked')              
+return          
+end    
+    
+if @IsExpired=1 or @IsVerified=1  
+begin  
+insert into @Table(ResponseCode,ResponseMessage)values('0404','Invalid/Expired OTP')              
+return          
+end  
+  
+declare @AllowedAttempts tinyint =(select top (1) [value] from configs where title='Sms Attempts' and is_deleted=0)              
+declare @BlockTill tinyint =(select top (1) [value] from configs where title='Sms Unblock' and is_deleted=0)              
+if @Attempts>=@AllowedAttempts              
+begin   
+  
+insert into @Table(ResponseCode,ResponseMessage,Attempts,AllowedAttempts,BlockTill,CustomerId,OtpId)values('401','No of allowed attempts exceeded. Customer is blocked.',@Attempts,@AllowedAttempts,@BlockTill,@CustomerId,@OtpId)              
+return              
+end          
+    
+if @OtpId is null          
+begin          
+insert into @Table(ResponseCode,ResponseMessage,Attempts,AllowedAttempts,BlockTill,OtpId)values('404','Invalid/Expired otp',@Attempts,@AllowedAttempts,@BlockTill,@OtpId)              
+return          
+end         
+        
+declare @Expiry smallint =(select top (1) [value] from configs where title='Sms expiry' and is_deleted=0)              
+if @Expiry is null              
+begin              
+insert into @Table(ResponseCode,ResponseMessage,Attempts,AllowedAttempts,BlockTill,OtpId)values('404','Expiry not found.',@Attempts,@AllowedAttempts,@BlockTill,@OtpId)              
+return              
+end              
+              
+declare @SecondsElapsed int=(select DATEDIFF(second,@LastOtpCreatedAt,getdate()))              
+if @SecondsElapsed>=@Expiry              
+begin              
+insert into @Table(ResponseCode,ResponseMessage,Attempts,AllowedAttempts,BlockTill,OtpId)values('0401','Invalid/Expired otp',@Attempts,@AllowedAttempts,@BlockTill,@OtpId)            
+return              
+end              
+                         
+if @CustomerOtp<>@Otp              
+begin              
+insert into @Table(ResponseCode,ResponseMessage,Attempts,AllowedAttempts,CustomerId,BlockTill,OtpId)values('404','Invalid/Expired otp',@Attempts,@AllowedAttempts,@CustomerId,@BlockTill,@OtpId)              
+return              
+end              
+                   
+else              
+begin              
+insert into @Table(ResponseCode,ResponseMessage,CustomerId,OtpId)values('200','Success',@CustomerId,@OtpId)              
+return              
+end              
+              
+return              
+end          
+        
+GO
+/****** Object:  UserDefinedFunction [dbo].[fn_validate_session]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--select * from fn_validate_session('','4430339164981','03332504577','','','Loan')                                    
+CREATE function [dbo].[fn_validate_session]              
+(                                    
+@TransactionId varchar(20)='',                            
+@Cnic varchar(15)='',                            
+@Mobile varchar(15)='',                        
+@BillReferenceNo varchar(50)='',                        
+@SessionId varchar(255)='',          
+@Token varchar(max)='',          
+@Endpoint varchar(20)=''                          
+)                                    
+returns @Table Table                                    
+(                                    
+ResponseCode varchar(20),                                    
+ResponseMessage nvarchar(255)                                    
+)                                    
+as                                    
+begin                                    
+                            
+if (@Endpoint<>'Loan' and (@SessionId='' or @Token='')) or (@Endpoint='Loan' and @Token='')          
+begin                                    
+insert into @Table(ResponseCode,ResponseMessage)values('99','Required fields/headers are missing.')                                    
+return                                    
+end                          
+                          
+if (@Endpoint='CustomerOnboarding' or @Endpoint='Disbursement') and @TransactionId=''                           
+begin                          
+insert into @Table(ResponseCode,ResponseMessage)values('99','Required fields are missing.')                                    
+return                              
+end                          
+                          
+if @Endpoint= 'Otp' and (@Cnic='' or @Mobile='')                          
+begin                          
+insert into @Table(ResponseCode,ResponseMessage)values('99','Required fields are missing.')                                    
+return                              
+end             
+        
+declare @CustomerId bigint,@OrderId bigint,@TokenSessionId int;                          
+        
+if @Endpoint<>'Loan'        
+begin        
+if @Endpoint='CustomerOnboarding' or @Endpoint='Disbursement'                 
+begin        
+select top (1) @CustomerId=customers_id, @OrderId=Id from orders where transaction_id=@TransactionId and is_deleted=0                                      
+end        
+if @Endpoint='Otp'        
+begin        
+select top(1) @CustomerId =Id from customers where cnic=@Cnic and mobile=@Mobile and is_deleted=0 order by created_at desc                            
+end        
+if @BillReferenceNo<>''        
+begin        
+select top(1) @CustomerId =Id from customers where id=(select top (1) customers_id from meters where bill_reference_number=@BillReferenceNo and is_deleted=0)                        
+end        
+--select top (1) @TokenSessionId =token_session_id from auth_session where customers_id=@CustomerId  and is_deleted=0 order by created_at desc        
+        
+if not exists(select top (1) id from token_session where token=@Token and is_deleted=0)                              
+begin                              
+insert into @Table(ResponseCode,ResponseMessage)values('031','Your application cannot be processed at the moment. Please try again later.')                              
+return                              
+end             
+end        
+           
+if @Endpoint<>'Otp' and @Endpoint<>'Loan' and not exists(select top (1) id from customers where id=@CustomerId and bank_session_id=@SessionId and is_deleted=0 )              
+begin              
+insert into @Table(ResponseCode,ResponseMessage)values('032','Your application cannot be processed at the moment. Please try again later.')                                    
+return              
+end              
+                         
+if @Endpoint='CustomerOnboarding' or @Endpoint='Disbursement'                          
+begin                          
+                                                        
+if @OrderId is null       
+begin                                            
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Invalid Transaction Id.')                                            
+return                                            
+end                            
+                            
+else if @CustomerId is null            
+begin                            
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Customer details not found against the provided Transaction Id.')                                            
+return                            
+end                            
+                            
+else if not exists(select top (1) id from customers where id=@CustomerId and is_deleted=0)                            
+begin                            
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Customer details not found against the provided Transaction Id.')                                            
+return                            
+end                            
+else                                            
+begin                                            
+                                            
+insert into @Table(ResponseCode,ResponseMessage)values ('00','Success')                                            
+return                                            
+end                                            
+                          
+end                          
+                          
+else if @Endpoint='Otp'                          
+begin                          
+select top(1) @CustomerId =Id from customers where cnic=@Cnic and mobile=@Mobile and is_deleted=0 order by created_at desc                            
+                         
+if @CustomerId is null                            
+begin                            
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Customer details not found against the provided cnic/mobile.')                                            
+return                            
+end                          
+                          
+else if not exists(select top (1) id from customers where id=@CustomerId and cnic=@Cnic and mobile=@Mobile and is_deleted=0)                          
+begin                          
+insert into @Table(ResponseCode,ResponseMessage)values('99','Invalid customer details against the provided Transaction Id.')                                    
+return                                    
+end                          
+                          
+else                                            
+begin                                            
+                                         
+insert into @Table(ResponseCode,ResponseMessage)values ('00','Success')                                            
+return                          
+                          
+end                          
+end          
+else if @Endpoint<>'Loan'                  
+begin                  
+                                
+if @TokenSessionId is null                                
+begin                                
+insert into @Table(ResponseCode,ResponseMessage)values('033','Your application cannot be processed at the moment. Please try again later.')                                
+return                                
+end           
+          
+if not exists(select top (1) id from token_session where token=@Token and is_deleted=0)                                
+begin                                
+insert into @Table(ResponseCode,ResponseMessage)values('034','Your application cannot be processed at the moment. Please try again later.')                                
+return                                
+end            
+          
+end           
+else if @Endpoint='Loan'                        
+begin                       
+if @Cnic<>'' and @Mobile<>''                        
+begin                       
+                        
+select top(1) @CustomerId =Id from customers where cnic=@Cnic and mobile=@Mobile and is_deleted=0 order by created_at desc                            
+if @CustomerId is null                            
+begin                            
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Customer details not found against the provided cnic/mobile.')                                   
+return                            
+end            
+else            
+begin              
+insert into @Table(ResponseCode,ResponseMessage) values ('00','Success.')                
+return            
+end                               
+end                        
+else                        
+begin                        
+if @CustomerId is null                            
+begin                            
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Customer details not found against the provided Bill.')                                       
+return                            
+end              
+else              
+begin              
+insert into @Table(ResponseCode,ResponseMessage) values ('00','Success.')                                            
+return                
+end              
+end                
+                        
+end                       
+else                         
+begin                          
+insert into @Table(ResponseCode,ResponseMessage)values ('99','Invlaid endpoint.')                                            
+return                          
+end                                  
+                                    
+return                                    
+end 
+GO
+/****** Object:  UserDefinedFunction [dbo].[fn_validate_token]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--select * from fn_validate_token('')      
+CREATE function [dbo].[fn_validate_token]      
+(      
+@Token varchar(max)=''      
+)      
+returns @Table Table      
+(      
+ResponseCode varchar(20),      
+ResponseMessage nvarchar(255)      
+)      
+as      
+begin      
+      
+if @Token=''       
+begin      
+insert into @Table(ResponseCode,ResponseMessage)values('03','Your application cannot be processed at the moment. Please try again later.')      
+return      
+end      
+      
+if not exists(select top (1) id from token_session where token=@Token and is_deleted=0 order by created_at desc)      
+begin      
+insert into @Table(ResponseCode,ResponseMessage)values('03','Your application cannot be processed at the moment. Please try again later.')      
+return      
+end      
+      
+else      
+begin      
+insert into @Table(ResponseCode,ResponseMessage)values('00','Success')      
+return      
+end      
+      
+return      
+end 
+GO
+/****** Object:  UserDefinedFunction [dbo].[fn_validate_token_session]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--select * from fn_validate_token_session('','4430339164981','03332504577','','','Here put token','Loan')                    
+CREATE function [dbo].[fn_validate_token_session]                    
+(                    
+@TransactionId varchar(20)='',            
+@Cnic varchar(15)='',            
+@Mobile varchar(15)='',        
+@BillReferenceNo varchar(50)='',        
+@SessionId varchar(255)='',                    
+@Token varchar(max)='',          
+@Endpoint varchar(20)=''          
+)                    
+returns @Table Table                    
+(                    
+ResponseCode varchar(20),                    
+ResponseMessage nvarchar(255)                    
+)                    
+as                    
+begin                    
+            
+if (@Endpoint='Loan' and @Token='') or (@Endpoint<>'Loan' and @SessionId='' or @Token='')                    
+begin                    
+insert into @Table(ResponseCode,ResponseMessage)values('99','Required fields/headers are missing.')                    
+return                    
+end          
+          
+else if (@Endpoint='CustomerOnboarding' or @Endpoint='Disbursement') and @TransactionId=''           
+begin          
+insert into @Table(ResponseCode,ResponseMessage)values('99','Required fields are missing.')                    
+return              
+end          
+          
+else if @Endpoint= 'Otp' and (@Cnic='' or @Mobile='')          
+begin          
+insert into @Table(ResponseCode,ResponseMessage)values('99','Required fields are missing.')                    
+return              
+end          
+          
+declare @CustomerId bigint;          
+          
+if @Endpoint='CustomerOnboarding' or @Endpoint='Disbursement'          
+begin          
+          
+declare @OrderId bigint;          
+select top (1) @CustomerId=customers_id, @OrderId=Id from orders where transaction_id=@TransactionId and is_deleted=0                      
+                        
+if @OrderId is null                        
+begin                            
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Invalid Transaction Id.')                            
+return                            
+end            
+            
+else if @CustomerId is null            
+begin            
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Customer details not found against the provided Transaction Id.')                            
+return            
+end            
+            
+else if not exists(select top (1) id from customers where id=@CustomerId and is_deleted=0)            
+begin            
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Customer details not found against the provided Transaction Id.')                            
+return            
+end            
+else                            
+begin                            
+                            
+insert into @Table(ResponseCode,ResponseMessage)values ('00','Success')                            
+return                            
+end                            
+          
+end          
+          
+else if @Endpoint='Otp'          
+begin          
+select top(1) @CustomerId =Id from customers where cnic=@Cnic and mobile=@Mobile and is_deleted=0 order by created_at desc            
+          
+if @CustomerId is null            
+begin            
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Customer details not found against the provided cnic/mobile.')                            
+return            
+end          
+          
+else if not exists(select top (1) id from customers where id=@CustomerId and cnic=@Cnic and mobile=@Mobile and is_deleted=0)          
+begin          
+insert into @Table(ResponseCode,ResponseMessage)values('99','Invalid customer details against the provided Transaction Id.')                    
+return                    
+end          
+          
+else                            
+begin                            
+                            
+insert into @Table(ResponseCode,ResponseMessage)values ('00','Success')                            
+return          
+          
+end          
+end          
+else if @Endpoint='Loan'        
+begin        
+if @Cnic<>'' and @Mobile<>''        
+begin        
+        
+select top(1) @CustomerId =Id from customers where cnic=@Cnic and mobile=@Mobile and is_deleted=0 order by created_at desc            
+if @CustomerId is null            
+begin            
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Customer details not found against the provided cnic/mobile.')                   
+return            
+end          
+        
+        
+end        
+else        
+begin        
+select top(1) @CustomerId =Id from customers where id=(select top (1) customers_id from meters where bill_reference_number=@BillReferenceNo and is_deleted=0)        
+if @CustomerId is null            
+begin            
+insert into @Table(ResponseCode,ResponseMessage) values ('99','Customer details not found against the provided Bill.')                            
+return            
+end          
+end        
+        
+end        
+else          
+begin          
+insert into @Table(ResponseCode,ResponseMessage)values ('99','Invlaid endpoint.')                            
+return          
+end          
+if @Endpoint<>'Loan'      
+begin      
+declare @TokenSessionId bigint=(select top (1) token_session_id from auth_session where customers_id=@CustomerId and is_deleted=0 order by created_at desc)                    
+                    
+if @TokenSessionId is null                    
+begin                    
+insert into @Table(ResponseCode,ResponseMessage)values('03','Your application cannot be processed at the moment. Please try again later.')                    
+return                    
+end       
+end      
+if @Endpoint='Loan'      
+begin      
+if not exists(select top (1) id from token_session where token=@Token and is_deleted=0)                    
+begin                    
+insert into @Table(ResponseCode,ResponseMessage)values('03','Your application cannot be processed at the moment. Please try again later.')                    
+return                    
+end        
+end      
+if @Endpoint<>'Loan' and not exists(select top (1) id from token_session where id=@TokenSessionId and [session_id]=@SessionId and token=@Token and is_deleted=0)                    
+begin                    
+insert into @Table(ResponseCode,ResponseMessage)values('03','Your application cannot be processed at the moment. Please try again later.')                    
+return                    
+end       
+                    
+else                    
+begin                
+insert into @Table(ResponseCode,ResponseMessage)values('00','Success')                    
+return                    
+end                    
+                    
+return                    
+end 
+GO
+/****** Object:  Table [dbo].[banking_url]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[banking_url](
+	[id] [smallint] IDENTITY(10,10) NOT NULL,
+	[processing_code] [varchar](100) NOT NULL,
+	[url] [varchar](1000) NOT NULL,
+	[user_name] [varchar](500) NULL,
+	[password] [varchar](500) NULL,
+	[soap] [varchar](max) NULL,
+	[log_request] [bit] NOT NULL,
+	[log_response] [bit] NOT NULL,
+	[log_encrypt] [bit] NOT NULL,
+	[log_decrypt] [bit] NOT NULL,
+	[created_by] [varchar](100) NULL,
+	[created_date] [datetime] NOT NULL,
+	[modified_by] [varchar](100) NULL,
+	[modified_date] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+	[url_prod] [varchar](1000) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[api_logs]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[api_logs](
+	[id] [bigint] IDENTITY(1,1) NOT NULL,
+	[external_id] [varchar](100) NULL,
+	[processing_code] [varchar](50) NOT NULL,
+	[request_payload] [nvarchar](max) NULL,
+	[response_payload] [nvarchar](max) NULL,
+	[http_status_code] [varchar](20) NOT NULL,
+	[response_code] [varchar](10) NULL,
+	[response_message] [nvarchar](255) NULL,
+	[request_date_time] [datetime] NOT NULL,
+	[response_date_time] [datetime] NOT NULL,
+	[source] [varchar](500) NOT NULL,
+	[url] [varchar](1000) NOT NULL,
+	[public_ip] [varchar](50) NOT NULL,
+	[guid] [varchar](50) NOT NULL,
+	[journey_id] [varchar](50) NOT NULL,
+	[transaction_time] [datetime] NOT NULL,
+	[is_deleted] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[auth_session]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[auth_session](
+	[id] [bigint] IDENTITY(100,1) NOT NULL,
+	[customers_id] [bigint] NOT NULL,
+	[token_session_id] [bigint] NOT NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[black_list]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[black_list](
+	[customers_id] [bigint] NULL,
+	[mobile] [varchar](15) NULL,
+	[cnic] [varchar](15) NULL,
+	[remarks] [nvarchar](1000) NULL,
+	[created_by] [varchar](20) NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_by] [varchar](20) NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[configs]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[configs](
+	[id] [smallint] IDENTITY(10,10) NOT NULL,
+	[title] [nvarchar](100) NOT NULL,
+	[value] [tinyint] NOT NULL,
+	[delimeter] [varchar](20) NULL,
+	[created_by] [varchar](20) NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_by] [varchar](20) NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[customer_otp]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[customer_otp](
+	[id] [bigint] IDENTITY(100,1) NOT NULL,
+	[customers_id] [bigint] NOT NULL,
+	[otp] [varchar](100) NOT NULL,
+	[attempts] [tinyint] NOT NULL,
+	[is_verified] [bit] NOT NULL,
+	[is_expired] [bit] NOT NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+	[is_blocked] [bit] NOT NULL,
+	[un_block_at] [datetime] NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[customers]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[customers](
+	[id] [bigint] IDENTITY(1000,1) NOT NULL,
+	[name] [nvarchar](150) NOT NULL,
+	[mobile] [varchar](100) NOT NULL,
+	[cnic] [varchar](100) NOT NULL,
+	[cnic_issue_date] [date] NOT NULL,
+	[bank_name] [nvarchar](150) NOT NULL,
+	[father_name] [nvarchar](100) NOT NULL,
+	[monthly_income] [int] NOT NULL,
+	[address] [nvarchar](1000) NULL,
+	[city] [nvarchar](100) NOT NULL,
+	[residential_status] [nvarchar](100) NULL,
+	[mode_of_financing] [nvarchar](100) NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+	[is_blocked] [bit] NOT NULL,
+	[repayment_account] [varchar](24) NULL,
+	[mobile_operator] [nvarchar](20) NULL,
+	[bank_session_id] [varchar](50) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[customers_nadra_detail]    Script Date: 8/3/2025 11:33:47 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[customers_nadra_detail](
+	[nadra_log_id] [bigint] NOT NULL,
+	[citizen_number] [varchar](15) NOT NULL,
+	[name] [nvarchar](100) NULL,
+	[mother_name] [nvarchar](100) NULL,
+	[father_or_husband_name] [nvarchar](100) NULL,
+	[present_address] [nvarchar](1000) NULL,
+	[permanent_address] [nvarchar](1000) NULL,
+	[birth_place] [nvarchar](100) NULL,
+	[date_of_expiry] [varchar](20) NULL,
+	[date_of_birth] [varchar](20) NULL,
+	[card_type] [varchar](20) NULL,
+	[created_at] [datetime] NOT NULL,
+	[modifed_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[customers_pmd_detail]    Script Date: 8/3/2025 11:33:48 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[customers_pmd_detail](
+	[pmd_log_id] [bigint] NOT NULL,
+	[cnic] [varchar](15) NOT NULL,
+	[msisdn] [varchar](15) NOT NULL,
+	[created_at] [datetime] NOT NULL,
+	[modifed_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[disbursement_details]    Script Date: 8/3/2025 11:33:48 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[disbursement_details](
+	[id] [bigint] IDENTITY(100,1) NOT NULL,
+	[orders_id] [bigint] NULL,
+	[status] [varchar](1) NOT NULL,
+	[remarks] [nvarchar](500) NOT NULL,
+	[created_date] [datetime] NOT NULL,
+	[modified_by] [varchar](20) NOT NULL,
+	[modified_date] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[disbursement_validate]    Script Date: 8/3/2025 11:33:48 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[disbursement_validate](
+	[transactionID] [varchar](50) NOT NULL,
+	[orderID] [varchar](50) NULL,
+	[ldRefNo] [varchar](50) NULL,
+	[financingAccountNumber] [varchar](50) NULL,
+ CONSTRAINT [PK_disbursement_validate] PRIMARY KEY CLUSTERED 
+(
+	[transactionID] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[eligibility]    Script Date: 8/3/2025 11:33:48 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[eligibility](
+	[id] [bigint] IDENTITY(10,1) NOT NULL,
+	[customers_id] [bigint] NOT NULL,
+	[meters_id] [bigint] NULL,
+	[orders_id] [bigint] NOT NULL,
+	[max_bill_amount] [int] NOT NULL,
+	[average_bill_amount] [varchar](20) NULL,
+	[no_of_late_payment] [smallint] NOT NULL,
+	[proxy_income] [varchar](20) NULL,
+	[threshold] [varchar](20) NULL,
+	[eligibile_income] [int] NOT NULL,
+	[assigned_limit] [varchar](20) NULL,
+	[limit_on] [nvarchar](100) NOT NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[endpoint_logs]    Script Date: 8/3/2025 11:33:48 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[endpoint_logs](
+	[processing_code] [varchar](50) NULL,
+	[response_code] [varchar](20) NULL,
+	[response_message] [varchar](1000) NULL,
+	[request] [varchar](max) NULL,
+	[response] [varchar](1000) NULL,
+	[created_at] [datetime] NOT NULL,
+	[detailed_reason] [varchar](1000) NULL
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[financing]    Script Date: 8/3/2025 11:33:49 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[financing](
+	[id] [bigint] IDENTITY(100,1) NOT NULL,
+	[customers_id] [bigint] NOT NULL,
+	[orders_id] [bigint] NOT NULL,
+	[vendors_id] [bigint] NOT NULL,
+	[salvage_value] [int] NOT NULL,
+	[net_financing_amount] [int] NOT NULL,
+	[processing_fee] [int] NOT NULL,
+	[profit_rate] [varchar](50) NOT NULL,
+	[kibor_value] [varchar](20) NULL,
+	[monthly_rate] [varchar](20) NULL,
+	[musawamah_price] [varchar](50) NOT NULL,
+	[subsequent_monthly_installment] [varchar](50) NULL,
+	[first_month_installment] [varchar](50) NOT NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+	[ld_reference_no] [varchar](20) NULL,
+	[total_amount_due] [varchar](20) NULL,
+	[total_amount] [varchar](50) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[generate_auth]    Script Date: 8/3/2025 11:33:49 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[generate_auth](
+	[id] [smallint] IDENTITY(10,10) NOT NULL,
+	[user_name] [nvarchar](150) NOT NULL,
+	[Password] [nvarchar](1000) NOT NULL,
+	[created_by] [varchar](30) NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_by] [varchar](30) NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[installment_schedule]    Script Date: 8/3/2025 11:33:49 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[installment_schedule](
+	[id] [bigint] IDENTITY(100,1) NOT NULL,
+	[financing_id] [bigint] NOT NULL,
+	[installment_month] [int] NOT NULL,
+	[due_date] [date] NOT NULL,
+	[amount] [varchar](50) NOT NULL,
+	[is_first_installment] [bit] NOT NULL,
+	[is_paid] [bit] NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[meters]    Script Date: 8/3/2025 11:33:49 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[meters](
+	[id] [bigint] IDENTITY(10,1) NOT NULL,
+	[customers_id] [bigint] NOT NULL,
+	[company_name] [nvarchar](150) NULL,
+	[consumer_number] [varchar](150) NULL,
+	[meter_number] [varchar](150) NULL,
+	[installation_date] [varchar](150) NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+	[bill_reference_number] [varchar](50) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[monthly_bills]    Script Date: 8/3/2025 11:33:49 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[monthly_bills](
+	[id] [bigint] IDENTITY(100,1) NOT NULL,
+	[customers_id] [bigint] NOT NULL,
+	[meters_id] [bigint] NOT NULL,
+	[bill_month] [varchar](30) NULL,
+	[bill_amount] [int] NULL,
+	[billing_date] [date] NULL,
+	[due_date] [date] NULL,
+	[actual_payment_amount] [int] NULL,
+	[actual_payment_date] [date] NULL,
+	[late_payment_amount] [int] NULL,
+	[late_payment_count] [int] NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[nadra_log]    Script Date: 8/3/2025 11:33:49 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[nadra_log](
+	[id] [bigint] IDENTITY(100,1) NOT NULL,
+	[citizen_number] [varchar](15) NOT NULL,
+	[issue_date] [varchar](20) NOT NULL,
+	[code] [varchar](20) NULL,
+	[message] [nvarchar](255) NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[onboarding_rules]    Script Date: 8/3/2025 11:33:49 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[onboarding_rules](
+	[id] [smallint] IDENTITY(10,10) NOT NULL,
+	[symbol] [varchar](50) NOT NULL,
+	[value] [varchar](20) NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[orders]    Script Date: 8/3/2025 11:33:49 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[orders](
+	[id] [bigint] IDENTITY(100,1) NOT NULL,
+	[customers_id] [bigint] NOT NULL,
+	[vendors_id] [bigint] NULL,
+	[transaction_id] [varchar](150) NOT NULL,
+	[reference_no] [varchar](150) NULL,
+	[order_amount] [int] NULL,
+	[model] [varchar](150) NULL,
+	[quantity] [tinyint] NULL,
+	[replacement_quantity] [tinyint] NOT NULL,
+	[total_cost] [int] NULL,
+	[replacement_cost] [int] NULL,
+	[security_deposit] [int] NULL,
+	[tenure] [varchar](50) NULL,
+	[product_agreement] [nvarchar](500) NULL,
+	[vendor_acceptance_status] [nvarchar](100) NULL,
+	[customer_acceptance_status] [nvarchar](100) NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+	[order_id] [varchar](150) NULL,
+	[ld_ref] [varchar](100) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[payment_schedule]    Script Date: 8/3/2025 11:33:49 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[payment_schedule](
+	[orders_id] [bigint] NOT NULL,
+	[billing_month] [datetime] NULL,
+	[emi] [varchar](20) NULL,
+	[outstanding_amount] [varchar](20) NULL,
+	[is_deleted] [bit] NOT NULL
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[pmd_log]    Script Date: 8/3/2025 11:33:49 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[pmd_log](
+	[id] [bigint] IDENTITY(100,1) NOT NULL,
+	[cnic] [varchar](15) NOT NULL,
+	[msisdn] [varchar](15) NOT NULL,
+	[status] [varchar](20) NOT NULL,
+	[response_code] [varchar](20) NULL,
+	[message] [nvarchar](255) NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[repayments]    Script Date: 8/3/2025 11:33:49 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[repayments](
+	[customers_id] [bigint] NOT NULL,
+	[meters_id] [bigint] NOT NULL,
+	[account] [varchar](24) NULL,
+	[amount] [varchar](20) NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+	[outstanding_amount] [varchar](20) NULL
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[sql_exception]    Script Date: 8/3/2025 11:33:50 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[sql_exception](
+	[customers_id] [bigint] NULL,
+	[customer_mobile] [varchar](100) NULL,
+	[customer_cnic] [varchar](300) NULL,
+	[sp_name] [varchar](300) NOT NULL,
+	[exception_message] [varchar](max) NULL,
+	[line] [smallint] NOT NULL,
+	[number] [smallint] NOT NULL,
+	[severity] [smallint] NOT NULL,
+	[state] [smallint] NOT NULL,
+	[created_date] [datetime] NOT NULL
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[tbl_FRP_Request]    Script Date: 8/3/2025 11:33:51 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[tbl_FRP_Request](
+	[ID] [int] IDENTITY(1,1) NOT NULL,
+	[CustomerID] [int] NULL,
+	[RosettaFormStatusID] [int] NULL,
+	[SalesForwardDate] [smalldatetime] NULL,
+	[SalesId] [int] NULL,
+	[SalesComments] [nvarchar](200) NULL,
+	[BRN] [int] NULL,
+	[NCANo] [nvarchar](50) NULL,
+	[RSDComments] [nvarchar](200) NULL,
+	[RSDFowardDate] [smalldatetime] NULL,
+	[RSDID] [int] NULL,
+	[ProposalNo] [nvarchar](50) NULL,
+	[CIUComments] [nvarchar](50) NULL,
+	[CIUFowardDate] [smalldatetime] NULL,
+	[CIUID] [int] NULL,
+	[DisbursmentStatusID] [int] NULL,
+	[CODComment] [nvarchar](200) NULL,
+	[CODID] [int] NULL,
+	[CODDate] [smalldatetime] NULL,
+	[StatusID] [int] NULL,
+	[IsActive] [bit] NOT NULL,
+ CONSTRAINT [PK_tbl_FRP_Request] PRIMARY KEY CLUSTERED 
+(
+	[ID] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[tbl_FRP_Status]    Script Date: 8/3/2025 11:33:51 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[tbl_FRP_Status](
+	[id] [int] IDENTITY(1,1) NOT NULL,
+	[Status] [nvarchar](200) NULL,
+	[IsActive] [bit] NOT NULL,
+ CONSTRAINT [PK_tbl_FRP_Status] PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[token_session]    Script Date: 8/3/2025 11:33:51 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[token_session](
+	[id] [bigint] IDENTITY(10,10) NOT NULL,
+	[session_id] [varchar](100) NOT NULL,
+	[token] [varchar](1000) NULL,
+	[created_at] [datetime] NOT NULL,
+	[modified_at] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[transaction_session]    Script Date: 8/3/2025 11:33:51 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[transaction_session](
+	[customers_id] [bigint] NOT NULL,
+	[transaction_id] [varchar](255) NULL,
+	[area] [varchar](100) NULL,
+	[session_id] [varchar](255) NULL,
+	[created_at] [datetime] NOT NULL,
+	[is_deleted] [bit] NOT NULL
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[vendors]    Script Date: 8/3/2025 11:33:51 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[vendors](
+	[id] [bigint] IDENTITY(100,1) NOT NULL,
+	[name] [nvarchar](150) NULL,
+	[iban] [varchar](100) NULL,
+	[created_date] [datetime] NOT NULL,
+	[modified_date] [datetime] NULL,
+	[is_deleted] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+SET IDENTITY_INSERT [dbo].[banking_url] ON 
+GO
+INSERT [dbo].[banking_url] ([id], [processing_code], [url], [user_name], [password], [soap], [log_request], [log_response], [log_encrypt], [log_decrypt], [created_by], [created_date], [modified_by], [modified_date], [is_deleted], [url_prod]) VALUES (10, N'Pmd', N'url_pmd', N'user', N'pwd', N'SOAP',0, 0, 0, 0, NULL, CAST(N'2025-05-20T13:53:46.577' AS DateTime), NULL, NULL, 0, N'')
+GO
+INSERT [dbo].[banking_url] ([id], [processing_code], [url], [user_name], [password], [soap], [log_request], [log_response], [log_encrypt], [log_decrypt], [created_by], [created_date], [modified_by], [modified_date], [is_deleted], [url_prod]) VALUES (30, N'DataCheck', N'DataCheck', NULL, NULL, NULL, 0, 0, 0, 0, NULL, CAST(N'2025-05-20T13:53:46.577' AS DateTime), NULL, NULL, 0, N'')
+GO
+INSERT [dbo].[banking_url] ([id], [processing_code], [url], [user_name], [password], [soap], [log_request], [log_response], [log_encrypt], [log_decrypt], [created_by], [created_date], [modified_by], [modified_date], [is_deleted], [url_prod]) VALUES (50, N'Kibor', N'url_kibor', NULL, NULL, NULL, 0, 0, 0, 0, NULL, CAST(N'2025-05-25T05:52:27.380' AS DateTime), NULL, NULL, 0, N'')
+GO
+INSERT [dbo].[banking_url] ([id], [processing_code], [url], [user_name], [password], [soap], [log_request], [log_response], [log_encrypt], [log_decrypt], [created_by], [created_date], [modified_by], [modified_date], [is_deleted], [url_prod]) VALUES (60, N'Sms', N'url_sms', NULL, NULL, N'SOAP', 0, 0, 0, 0, NULL, CAST(N'2025-05-25T05:52:39.677' AS DateTime), NULL, NULL, 0, N'')
+GO
+INSERT [dbo].[banking_url] ([id], [processing_code], [url], [user_name], [password], [soap], [log_request], [log_response], [log_encrypt], [log_decrypt], [created_by], [created_date], [modified_by], [modified_date], [is_deleted], [url_prod]) VALUES (70, N'Nadra', N'url_nadra', N'user', N'password', N'', 0, 0, 0, 0, NULL, CAST(N'2025-05-20T13:53:46.577' AS DateTime), NULL, NULL, 0, N'')
+GO
+INSERT [dbo].[banking_url] ([id], [processing_code], [url], [user_name], [password], [soap], [log_request], [log_response], [log_encrypt], [log_decrypt], [created_by], [created_date], [modified_by], [modified_date], [is_deleted], [url_prod]) VALUES (80, N'Acl', N'url_screening', NULL, NULL, NULL, 0, 0, 0, 0, NULL, CAST(N'2025-06-17T12:04:19.200' AS DateTime), NULL, NULL, 0, N'')
+GO
+INSERT [dbo].[banking_url] ([id], [processing_code], [url], [user_name], [password], [soap], [log_request], [log_response], [log_encrypt], [log_decrypt], [created_by], [created_date], [modified_by], [modified_date], [is_deleted], [url_prod]) VALUES (90, N'AclAuth', N'url_screening', N'user', N'password', N'WRITE', 0, 0, 0, 0, NULL, CAST(N'2025-06-19T13:26:34.543' AS DateTime), NULL, NULL, 0, N'')
+GO
+INSERT [dbo].[banking_url] ([id], [processing_code], [url], [user_name], [password], [soap], [log_request], [log_response], [log_encrypt], [log_decrypt], [created_by], [created_date], [modified_by], [modified_date], [is_deleted], [url_prod]) VALUES (110, N'Nadra_Soap', N'url_nadra', N'user', N'password', N'SOAP', 0, 0, 0, 0, NULL, CAST(N'2025-07-17T05:30:22.707' AS DateTime), NULL, NULL, 0, NULL)
+GO
+SET IDENTITY_INSERT [dbo].[banking_url] OFF
+GO
+SET IDENTITY_INSERT [dbo].[configs] ON 
+GO
+INSERT [dbo].[configs] ([id], [title], [value], [delimeter], [created_by], [created_at], [modified_by], [modified_at], [is_deleted]) VALUES (10, N'Nadra', 20, N'Per day', NULL, CAST(N'2025-05-27T09:11:03.743' AS DateTime), NULL, NULL, 0)
+GO
+INSERT [dbo].[configs] ([id], [title], [value], [delimeter], [created_by], [created_at], [modified_by], [modified_at], [is_deleted]) VALUES (20, N'Pmd', 20, N'Overall', NULL, CAST(N'2025-05-27T09:11:03.743' AS DateTime), NULL, NULL, 0)
+GO
+INSERT [dbo].[configs] ([id], [title], [value], [delimeter], [created_by], [created_at], [modified_by], [modified_at], [is_deleted]) VALUES (30, N'Sms', 20, N'Per day', NULL, CAST(N'2025-05-27T09:11:03.743' AS DateTime), NULL, NULL, 0)
+GO
+INSERT [dbo].[configs] ([id], [title], [value], [delimeter], [created_by], [created_at], [modified_by], [modified_at], [is_deleted]) VALUES (40, N'Sms expiry', 60, N'Seconds', NULL, CAST(N'2025-05-27T09:11:03.743' AS DateTime), NULL, NULL, 0)
+GO
+INSERT [dbo].[configs] ([id], [title], [value], [delimeter], [created_by], [created_at], [modified_by], [modified_at], [is_deleted]) VALUES (50, N'Sms Attempts', 20, N'Per day', NULL, CAST(N'2025-05-28T05:16:03.450' AS DateTime), NULL, NULL, 0)
+GO
+INSERT [dbo].[configs] ([id], [title], [value], [delimeter], [created_by], [created_at], [modified_by], [modified_at], [is_deleted]) VALUES (60, N'Sms Unblock', 8, N'Hours', NULL, CAST(N'2025-06-12T08:35:57.137' AS DateTime), NULL, NULL, 0)
+GO
+SET IDENTITY_INSERT [dbo].[configs] OFF
+GO
+SET IDENTITY_INSERT [dbo].[generate_auth] ON 
+GO
+INSERT [dbo].[generate_auth] ([id], [user_name], [Password], [created_by], [created_at], [modified_by], [modified_at], [is_deleted]) VALUES (10, N'Abpl_FRP', N'abpL@2520#', NULL, CAST(N'2025-05-14T06:42:43.980' AS DateTime), NULL, NULL, 0)
+GO
+SET IDENTITY_INSERT [dbo].[generate_auth] OFF
+GO
+SET IDENTITY_INSERT [dbo].[onboarding_rules] ON 
+GO
+INSERT [dbo].[onboarding_rules] ([id], [symbol], [value], [created_at], [modified_at], [is_deleted]) VALUES (80, N'SALVAGE', N'1500', CAST(N'2025-05-16T08:07:17.003' AS DateTime), NULL, 0)
+GO
+INSERT [dbo].[onboarding_rules] ([id], [symbol], [value], [created_at], [modified_at], [is_deleted]) VALUES (90, N'PROC_FEE', N'500', CAST(N'2025-05-16T08:07:17.003' AS DateTime), NULL, 0)
+GO
+INSERT [dbo].[onboarding_rules] ([id], [symbol], [value], [created_at], [modified_at], [is_deleted]) VALUES (100, N'KIBOR', N'11.43', CAST(N'2025-05-16T08:07:17.003' AS DateTime), NULL, 0)
+GO
+INSERT [dbo].[onboarding_rules] ([id], [symbol], [value], [created_at], [modified_at], [is_deleted]) VALUES (110, N'MARGIN', N'2', CAST(N'2025-05-16T08:07:17.003' AS DateTime), NULL, 0)
+GO
+INSERT [dbo].[onboarding_rules] ([id], [symbol], [value], [created_at], [modified_at], [is_deleted]) VALUES (120, N'TERM', N'18', CAST(N'2025-05-16T08:07:17.003' AS DateTime), NULL, 0)
+GO
+INSERT [dbo].[onboarding_rules] ([id], [symbol], [value], [created_at], [modified_at], [is_deleted]) VALUES (130, N'MIN_FIN', N'10000', CAST(N'2025-05-16T08:07:17.003' AS DateTime), NULL, 0)
+GO
+INSERT [dbo].[onboarding_rules] ([id], [symbol], [value], [created_at], [modified_at], [is_deleted]) VALUES (140, N'MAX_FIN', N'300000', CAST(N'2025-05-16T08:07:17.003' AS DateTime), NULL, 0)
+GO
+INSERT [dbo].[onboarding_rules] ([id], [symbol], [value], [created_at], [modified_at], [is_deleted]) VALUES (150, N'INSTALLATION_FEE', N'800', CAST(N'2025-05-16T08:07:17.003' AS DateTime), NULL, 0)
+GO
+INSERT [dbo].[onboarding_rules] ([id], [symbol], [value], [created_at], [modified_at], [is_deleted]) VALUES (160, N'FIRST_INSTALLATION_FEE', N'200', CAST(N'2025-05-16T08:07:17.003' AS DateTime), NULL, 0)
+GO
+SET IDENTITY_INSERT [dbo].[onboarding_rules] OFF
+GO
+SET ANSI_PADDING ON
+GO
+ALTER TABLE [dbo].[banking_url] ADD UNIQUE NONCLUSTERED 
+(
+	[processing_code] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMPDB = OFF, IGNORE_DUP_KEY = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+GO
+SET ANSI_PADDING ON
+GO
+
+ALTER TABLE [dbo].[banking_url] ADD UNIQUE NONCLUSTERED 
+(
+	[url] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMPDB = OFF, IGNORE_DUP_KEY = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+GO
+SET ANSI_PADDING ON
+GO
+/****** Object:  Index [UQ__onboardi__DF7EEB8158DA078F]    Script Date: 8/3/2025 11:34:00 AM ******/
+ALTER TABLE [dbo].[onboarding_rules] ADD UNIQUE NONCLUSTERED 
+(
+	[symbol] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMPDB = OFF, IGNORE_DUP_KEY = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+GO
+ALTER TABLE [dbo].[banking_url] ADD  DEFAULT ((0)) FOR [log_request]
+GO
+ALTER TABLE [dbo].[banking_url] ADD  DEFAULT ((0)) FOR [log_response]
+GO
+ALTER TABLE [dbo].[banking_url] ADD  DEFAULT ((0)) FOR [log_encrypt]
+GO
+ALTER TABLE [dbo].[banking_url] ADD  DEFAULT ((0)) FOR [log_decrypt]
+GO
+ALTER TABLE [dbo].[banking_url] ADD  DEFAULT (getdate()) FOR [created_date]
+GO
+ALTER TABLE [dbo].[banking_url] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[api_logs] ADD  DEFAULT (getdate()) FOR [transaction_time]
+GO
+ALTER TABLE [dbo].[api_logs] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[auth_session] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[auth_session] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[black_list] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[black_list] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[configs] ADD  DEFAULT ((0)) FOR [value]
+GO
+ALTER TABLE [dbo].[configs] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[configs] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[customer_otp] ADD  DEFAULT ((0)) FOR [attempts]
+GO
+ALTER TABLE [dbo].[customer_otp] ADD  DEFAULT ((0)) FOR [is_verified]
+GO
+ALTER TABLE [dbo].[customer_otp] ADD  DEFAULT ((0)) FOR [is_expired]
+GO
+ALTER TABLE [dbo].[customer_otp] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[customer_otp] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[customer_otp] ADD  DEFAULT ((0)) FOR [is_blocked]
+GO
+ALTER TABLE [dbo].[customers] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[customers] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[customers] ADD  DEFAULT ((0)) FOR [is_blocked]
+GO
+ALTER TABLE [dbo].[customers_nadra_detail] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[customers_nadra_detail] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[customers_pmd_detail] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[customers_pmd_detail] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[disbursement_details] ADD  DEFAULT ('P') FOR [status]
+GO
+ALTER TABLE [dbo].[disbursement_details] ADD  DEFAULT ('Pending action') FOR [remarks]
+GO
+ALTER TABLE [dbo].[disbursement_details] ADD  DEFAULT (getdate()) FOR [created_date]
+GO
+ALTER TABLE [dbo].[disbursement_details] ADD  DEFAULT ('99999') FOR [modified_by]
+GO
+ALTER TABLE [dbo].[disbursement_details] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[eligibility] ADD  DEFAULT ((0)) FOR [no_of_late_payment]
+GO
+ALTER TABLE [dbo].[eligibility] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[eligibility] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[endpoint_logs] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[financing] ADD  DEFAULT ((0)) FOR [salvage_value]
+GO
+ALTER TABLE [dbo].[financing] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[financing] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[generate_auth] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[generate_auth] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[installment_schedule] ADD  DEFAULT ((0)) FOR [is_first_installment]
+GO
+ALTER TABLE [dbo].[installment_schedule] ADD  DEFAULT ((0)) FOR [is_paid]
+GO
+ALTER TABLE [dbo].[installment_schedule] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[installment_schedule] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[meters] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[meters] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[monthly_bills] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[monthly_bills] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[nadra_log] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[nadra_log] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[onboarding_rules] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[onboarding_rules] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[orders] ADD  DEFAULT ((0)) FOR [replacement_quantity]
+GO
+ALTER TABLE [dbo].[orders] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[orders] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[payment_schedule] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[pmd_log] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[pmd_log] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[repayments] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[repayments] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[sql_exception] ADD  DEFAULT ((0)) FOR [line]
+GO
+ALTER TABLE [dbo].[sql_exception] ADD  DEFAULT ((0)) FOR [number]
+GO
+ALTER TABLE [dbo].[sql_exception] ADD  DEFAULT ((0)) FOR [severity]
+GO
+ALTER TABLE [dbo].[sql_exception] ADD  DEFAULT ((0)) FOR [state]
+GO
+ALTER TABLE [dbo].[sql_exception] ADD  DEFAULT (getdate()) FOR [created_date]
+GO
+ALTER TABLE [dbo].[tbl_FRP_Request] ADD  CONSTRAINT [DF_tbl_FRP_Request_IsActive]  DEFAULT ((1)) FOR [IsActive]
+GO
+ALTER TABLE [dbo].[tbl_FRP_Status] ADD  CONSTRAINT [DF_tbl_FRP_Status_Is_Active]  DEFAULT ((1)) FOR [IsActive]
+GO
+ALTER TABLE [dbo].[token_session] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[token_session] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[transaction_session] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[transaction_session] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[vendors] ADD  DEFAULT (getdate()) FOR [created_date]
+GO
+ALTER TABLE [dbo].[vendors] ADD  DEFAULT ((0)) FOR [is_deleted]
+GO
+ALTER TABLE [dbo].[auth_session]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[auth_session]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[auth_session]  WITH CHECK ADD FOREIGN KEY([token_session_id])
+REFERENCES [dbo].[token_session] ([id])
+GO
+ALTER TABLE [dbo].[auth_session]  WITH CHECK ADD FOREIGN KEY([token_session_id])
+REFERENCES [dbo].[token_session] ([id])
+GO
+ALTER TABLE [dbo].[black_list]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[black_list]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[customer_otp]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[customer_otp]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[customers_nadra_detail]  WITH CHECK ADD FOREIGN KEY([nadra_log_id])
+REFERENCES [dbo].[nadra_log] ([id])
+GO
+ALTER TABLE [dbo].[customers_nadra_detail]  WITH CHECK ADD FOREIGN KEY([nadra_log_id])
+REFERENCES [dbo].[nadra_log] ([id])
+GO
+ALTER TABLE [dbo].[customers_pmd_detail]  WITH CHECK ADD FOREIGN KEY([pmd_log_id])
+REFERENCES [dbo].[pmd_log] ([id])
+GO
+ALTER TABLE [dbo].[customers_pmd_detail]  WITH CHECK ADD FOREIGN KEY([pmd_log_id])
+REFERENCES [dbo].[pmd_log] ([id])
+GO
+ALTER TABLE [dbo].[disbursement_details]  WITH CHECK ADD FOREIGN KEY([orders_id])
+REFERENCES [dbo].[orders] ([id])
+GO
+ALTER TABLE [dbo].[eligibility]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[eligibility]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[eligibility]  WITH CHECK ADD FOREIGN KEY([meters_id])
+REFERENCES [dbo].[meters] ([id])
+GO
+ALTER TABLE [dbo].[eligibility]  WITH CHECK ADD FOREIGN KEY([meters_id])
+REFERENCES [dbo].[meters] ([id])
+GO
+ALTER TABLE [dbo].[eligibility]  WITH CHECK ADD FOREIGN KEY([orders_id])
+REFERENCES [dbo].[orders] ([id])
+GO
+ALTER TABLE [dbo].[eligibility]  WITH CHECK ADD FOREIGN KEY([orders_id])
+REFERENCES [dbo].[orders] ([id])
+GO
+ALTER TABLE [dbo].[financing]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[financing]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[financing]  WITH CHECK ADD FOREIGN KEY([orders_id])
+REFERENCES [dbo].[orders] ([id])
+GO
+ALTER TABLE [dbo].[financing]  WITH CHECK ADD FOREIGN KEY([orders_id])
+REFERENCES [dbo].[orders] ([id])
+GO
+ALTER TABLE [dbo].[financing]  WITH CHECK ADD FOREIGN KEY([vendors_id])
+REFERENCES [dbo].[vendors] ([id])
+GO
+ALTER TABLE [dbo].[financing]  WITH CHECK ADD FOREIGN KEY([vendors_id])
+REFERENCES [dbo].[vendors] ([id])
+GO
+ALTER TABLE [dbo].[installment_schedule]  WITH CHECK ADD FOREIGN KEY([financing_id])
+REFERENCES [dbo].[financing] ([id])
+GO
+ALTER TABLE [dbo].[installment_schedule]  WITH CHECK ADD FOREIGN KEY([financing_id])
+REFERENCES [dbo].[financing] ([id])
+GO
+ALTER TABLE [dbo].[meters]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[meters]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[monthly_bills]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[monthly_bills]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[monthly_bills]  WITH CHECK ADD FOREIGN KEY([meters_id])
+REFERENCES [dbo].[meters] ([id])
+GO
+ALTER TABLE [dbo].[monthly_bills]  WITH CHECK ADD FOREIGN KEY([meters_id])
+REFERENCES [dbo].[meters] ([id])
+GO
+ALTER TABLE [dbo].[orders]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[orders]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[orders]  WITH CHECK ADD FOREIGN KEY([vendors_id])
+REFERENCES [dbo].[vendors] ([id])
+GO
+ALTER TABLE [dbo].[orders]  WITH CHECK ADD FOREIGN KEY([vendors_id])
+REFERENCES [dbo].[vendors] ([id])
+GO
+ALTER TABLE [dbo].[payment_schedule]  WITH CHECK ADD FOREIGN KEY([orders_id])
+REFERENCES [dbo].[orders] ([id])
+GO
+ALTER TABLE [dbo].[repayments]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[repayments]  WITH CHECK ADD FOREIGN KEY([meters_id])
+REFERENCES [dbo].[meters] ([id])
+GO
+ALTER TABLE [dbo].[sql_exception]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+ALTER TABLE [dbo].[transaction_session]  WITH CHECK ADD FOREIGN KEY([customers_id])
+REFERENCES [dbo].[customers] ([id])
+GO
+/****** Object:  StoredProcedure [dbo].[sp_DashboardDetail]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE PROC [dbo].[sp_DashboardDetail]  
+AS  
+
+UPDATE U SET U.Status = 0
+FROM Employee E INNER JOIN tbl_Users U ON U.Emp_No = E.Emp_No
+WHERE U.Status = 1 AND E.Status = 'R'
+
+SELECT TOP(12)   
+TRIM(TRIM(Emp_Fname)+' '+TRIM(TRIM(ISNULL(Emp_Mname,'')+' '+ISNULL(Emp_Lname,'')))) AS 'EFName',   
+CONVERT(varchar, CDate, 107) AS 'CDate', UImg, Gender FROM tbl_Users  
+WHERE UID <> 1 AND Status = 1  
+ORDER BY CONVERT(DATE,CDate) Desc , CONVERT(varchar, CDate, 8) desc
+  
+SELECT AppID, AppName, AppURL, Prominant, Icon,   
+CONVERT(varchar, EntryDate, 107) AS 'EntryDate', Status FROM tbl_EnrollApps  
+WHERE AppID IN (25, 26, 36,34)
+ORDER BY AppID DESC
+  
+SELECT COUNT(*) AS 'TOTAL' FROM tbl_Branch WHERE Status = 1
+UNION ALL  
+SELECT COUNT(*) AS 'TOTAL' FROM Employee WHERE Status <> 'R'
+--UNION ALL  
+----UTID <> 1 AND 
+--SELECT (SELECT COUNT(*) FROM tbl_Users WHERE Status = 1 AND isVaccinated = 1)+(SELECT COUNT(*) FROM EmployeeTPC WHERE isVaccinated = 1) AS 'TOTAL'
+--UNION ALL  
+--SELECT COUNT(*) AS 'TOTAL' FROM tbl_UserType
+--UNION ALL
+--SELECT COUNT(*) AS 'tpcUsers' FROM EmployeeTPC
+
+SELECT (SELECT COUNT(*) FROM tbl_Users WHERE UTID <> 1 AND Status = 1)
+GO
+/****** Object:  StoredProcedure [dbo].[sp_Login]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE PROC [dbo].[sp_Login]  
+@UName NVARCHAR(50) NULL  
+AS  
+BEGIN  
+
+
+BEGIN
+
+DECLARE @UID INT = (SELECT UID FROM tbl_Users WHERE UName = @UName AND Status = 1)  
+DECLARE @EMP_Status NVARCHAR(10) = (SELECT Status FROM Employee WHERE Emp_No =   
+(SELECT Emp_No FROM tbl_Users WHERE UName = @UName AND Status = 1))  
+  
+IF @EMP_Status IN ('R') --,'RL'  
+BEGIN  
+ UPDATE tbl_Users SET Status = 0 WHERE UID = @UID  
+ SELECT * FROM tbl_Users WHERE UID = @UID  
+END  
+  
+  
+IF @UID IS NOT NULL  
+BEGIN  
+DECLARE @BRID NVARCHAR(6) = (SELECT AIB_Unit_Id FROM Employee WHERE Emp_No = (SELECT Emp_No FROM tbl_Users WHERE UID = @UID) AND AIB_Unit_Id IS NOT NULL)    
+   
+IF @BRID <> '0001' OR @BRID IS NOT NULL OR @BRID = ''  
+BEGIN  
+ INSERT INTO tbl_Branch_Swap(P_BID, N_BID, UID, Emp_No)  
+ SELECT BID, @BRID, UID, Emp_No FROM tbl_Users WHERE UID = @UID  
+  
+ UPDATE U SET   
+  U.BID = E.AIB_Unit_Id,   
+  U.Designation = E.FDesig_Desc,   
+  Grade = Corp_Title_Code,   
+  U.DepartID = D.DepartID,   
+  Department = Department_Desc  
+ FROM tbl_Users AS U   
+ INNER JOIN Employee AS E ON U.Emp_No = E.Emp_No    
+ LEFT JOIN tbl_Departments AS D ON D.Name = Department_Desc  
+ WHERE U.UID = @UID  
+ END  
+ELSE  
+BEGIN   
+ UPDATE U SET   
+  U.BID = E.Located_Brcode,   
+  U.Designation = E.FDesig_Desc,   
+  Grade = Corp_Title_Code,   
+  U.DepartID = D.DepartID,   
+  Department = Department_Desc  
+ FROM tbl_Users AS U   
+ INNER JOIN Employee AS E ON U.Emp_No = E.Emp_No    
+ LEFT JOIN tbl_Departments AS D ON D.Name = Department_Desc  
+ WHERE U.UID = @UID  
+END   
+  
+ 
+  
+ DECLARE @VAL INT = (SELECT COUNT(DISTINCT UID) FROM tbl_MenuRights WHERE UID = @UID)  
+ IF @VAL <> 0  
+  BEGIN  
+   SELECT U.UID, UAF.UTID, Emp_No, DepartID, Gender,     
+   TRIM(TRIM(Emp_Fname)+' '+TRIM(TRIM(ISNULL(Emp_Mname,'')+' '+ISNULL(Emp_Lname,'')))) AS 'EFNAME',  
+   (SELECT UTName FROM tbl_UserType WHERE UTID = UAF.UTID) AS 'UserType',   
+   UName, U.BID,B.BName, u.Emp_Sname, u.Emp_Fname, u.Emp_Mname, u.Emp_Lname, isActive, isVaccinated, isExempted, Designation FROM   
+   tbl_Users U INNER JOIN tbl_Branch B ON  
+   B.BID = U.BID INNER JOIN tbl_MenuRights UAF ON UAF.UID = U.UID  
+   WHERE   
+   U.UID = @UID AND   
+   U.Status = 1  
+   GROUP BY U.UID, UAF.UTID, Emp_No, DepartID, Gender, UName, U.BID,B.BName, u.Emp_Sname, u.Emp_Fname,   
+   u.Emp_Mname, u.Emp_Lname, isActive, isVaccinated, isExempted,Designation
+
+  END  
+ ELSE  
+  BEGIN   
+   SELECT U.UID, U.UTID, Emp_No, DepartID, Gender, (SELECT UTName FROM tbl_UserType WHERE UTID = U.UTID) AS 'UserType',      
+   TRIM(TRIM(Emp_Fname)+' '+TRIM(TRIM(ISNULL(Emp_Mname,'')+' '+ISNULL(Emp_Lname,'')))) AS 'EFNAME',  
+   UName, U.BID,B.BName, u.Emp_Sname ,u.Emp_Fname, u.Emp_Mname, u.Emp_Lname, isActive, isVaccinated, isExempted, Designation FROM   
+   tbl_Users U INNER JOIN tbl_Branch B ON  
+   B.BID = U.BID   
+   WHERE   
+   U.UID = @UID AND   
+   U.Status = 1  
+   GROUP BY U.UID, U.UTID, Emp_No, DepartID, Gender, UName, U.BID,B.BName, u.Emp_Sname, u.Emp_Fname,   
+   u.Emp_Mname, u.Emp_Lname, isActive, isVaccinated, isExempted,Designation
+
+  END  
+ END  
+   
+ SELECT UImg FROM tbl_Users WHERE UID = @UID  
+ END
+
+ 
+  
+END  
+GO
+/****** Object:  StoredProcedure [dbo].[sp_SelectMenu_Admin]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+CREATE PROC [dbo].[sp_SelectMenu_Admin]
+@UID INT NULL
+AS
+
+
+
+SELECT MR.UAID , UA.UAName FROM tbl_MenuRights MR INNER JOIN     
+ tbl_UserApplication UA ON UA.UAID = MR.UAID INNER JOIN    
+ tbl_MenuRights UAF ON UAF.UAID = MR.UAID     
+ WHERE MR.UID = @UID AND UA.Status = 1 AND MR.Status = 1      
+ GROUP BY MR.UAID, UA.UAName    
+UNION    
+ SELECT M.UAID, UA.UAName FROM tbl_Menu M INNER JOIN     
+ tbl_UserApplication UA ON UA.UAID = M.UAID    
+ WHERE M.MCatID = 0 AND UA.Status = 1     
+ GROUP BY M.UAID, UA.UAName  
+  Order by UA.UAName
+    
+ SELECT DISTINCT M.MID, M.MName, M.MURL, M.MIcon, M.SMID,     
+ MR.UTID, MR.UID, M.Status, MR.UAID, M.MCatID, MR.RoleID, M.Serial     
+ FROM tbl_Menu M INNER JOIN tbl_MenuRights MR ON MR.MID = M.MID    
+ WHERE MR.UID = @UID AND M.Status = 1 AND MR.Status = 1      
+UNION    
+ SELECT DISTINCT M.MID, M.MName, M.MURL, M.MIcon, M.SMID,    
+ NULL AS 'UTID', NULL AS 'UID', M.Status, M.UAID, M.MCatID, NULL AS 'RoleID', M.Serial     
+ FROM tbl_Menu M       
+ WHERE M.MCatID = 0 AND M.Status = 1     
+ AND M.Status = 1    
+ ORDER BY M.MName ASC --M.Serial, 
+
+
+GO
+/****** Object:  StoredProcedure [dbo].[ups_verify_otp]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--ups_verify_otp '','',''                
+CREATE Procedure [dbo].[ups_verify_otp]                
+(                
+@CustomerCnic varchar(150),                
+@MobileNumber varchar(150),                
+@Otp varchar(100)                
+)                
+as                
+begin                
+begin try                
+declare @OtpId bigint, @CustomerId bigint,@ResponseCode varchar(20),@ResponseMessage nvarchar(255),@Attempts tinyint,@AllowedAttempts tinyint,@BlockTill tinyint;                
+select @OtpId=OtpId, @CustomerId=CustomerId,@ResponseCode=ResponseCode,@ResponseMessage=ResponseMessage,@Attempts=Attempts,@AllowedAttempts=AllowedAttempts,@BlockTill=BlockTill from fn_validate_otp(@MobileNumber,@CustomerCnic,@Otp)                
+begin tran                
+if @ResponseCode <>'200'                
+begin               
+if @ResponseCode='404'                
+begin             
+set @Attempts =@Attempts+1;        
+        
+if @Attempts>=@AllowedAttempts                
+begin           
+update customer_otp set attempts=(@Attempts),is_expired=1,modified_at=getdate(),is_blocked=1,un_block_at= DATEADD(HOUR, @BlockTill, GETDATE()) where id=@OtpId         
+--update customers set is_blocked=1 where id=@CustomerId        
+--insert into black_list(customers_id,mobile,cnic,remarks) values(@CustomerId,@MobileNumber,@CustomerCnic,@ResponseMessage)                
+set @ResponseMessage='No of allowed attempts exceeded. Customer is blocked.'                
+end           
+else        
+begin        
+update customer_otp set attempts=(@Attempts),modified_at=getdate() where id=@OtpId        
+end        
+end       
+else if @ResponseCode='0401'      
+begin      
+update customer_otp set is_expired=1,modified_at=getdate() where id=@OtpId        
+end      
+commit      
+set @ResponseCode='201'  
+select @ResponseCode ResponseCode,@ResponseMessage ResponseDescription                
+end               
+else                
+begin                
+update customer_otp set is_verified=1,is_expired=1,modified_at=getdate() where id=@OtpId and is_verified=0 and is_expired=0                
+commit                
+select @ResponseCode ResponseCode,@ResponseMessage ResponseDescription                
+end                
+end try                
+begin catch                
+rollback                
+select '500'ResponseCode,'Exception'ResponseDescription                
+end catch                
+                
+end
+
+GO
+/****** Object:  StoredProcedure [dbo].[usp_endpoint_log]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE procedure [dbo].[usp_endpoint_log]  
+(  
+@ProcessingCode varchar(50),  
+@Request varchar(max),  
+@Response varchar(max),  
+@ResponseCode varchar(20),  
+@ResponseMessage varchar(1000),
+@DetailedReason VARCHAR(1000)    -- ✅ New parameter 
+
+)  
+as  
+begin  
+insert into endpoint_logs(processing_code,response_code,response_message,request,response,detailed_reason)values(@ProcessingCode,@ResponseCode,@ResponseMessage,@Request,@Response,@DetailedReason)  
+end
+GO
+/****** Object:  StoredProcedure [dbo].[usp_generate_auth]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+--usp_generate_auth 'Abpl_FRP','abpL@2520#',''        
+CREATE Procedure [dbo].[usp_generate_auth]        
+(        
+@UserName nvarchar(150)='',        
+@Password nvarchar(1000)='',    
+@SessionId varchar(100)=''    
+)        
+as        
+begin        
+if not exists(select top (1) Id from generate_auth where [user_name] COLLATE Latin1_General_CS_AS=@UserName and [password] COLLATE Latin1_General_CS_AS=@Password and is_deleted=0)        
+begin        
+select '03'ResponseCode,'Your application cannot be processed at the moment. Please try again later.'ResponseMessage        
+end        
+else        
+begin        
+insert into token_session([session_id])values(@SessionId)    
+declare @Id bigint=(select @@IDENTITY)    
+select '200'ResponseCode,'Success'ResponseMessage,@Id Id       
+end        
+end   
+  
+GO
+/****** Object:  StoredProcedure [dbo].[usp_get_all_urls]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_get_all_urls    
+CREATE   PROCEDURE [dbo].[usp_get_all_urls]    
+AS    
+BEGIN    
+    SELECT processing_code ProcessingCode,    
+           [Url],    
+           [user_name] [UserName],    
+           [Password],    
+     --      action_name ActionName,
+		   --action_head ActionHead,
+		   --request_name RequestName,
+		   --request_head RequestHead,
+		   [Soap],
+		   log_request LogRequest,  
+		   log_response LogResponse,
+		   log_encrypt LogEncrypt,
+		   log_decrypt LogDecrypt
+    FROM banking_url    
+    WHERE is_deleted = 0    
+END; 
+
+GO
+/****** Object:  StoredProcedure [dbo].[usp_get_onboarding_rules]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_get_onboarding_rules
+CREATE Procedure [dbo].[usp_get_onboarding_rules]
+as  
+begin  
+  select symbol [Symbol],[value] [Value] from onboarding_rules where is_deleted=0
+end
+
+GO
+/****** Object:  StoredProcedure [dbo].[usp_get_payment]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_get_payment '3520168143567','03234333299','0','0'        
+CREATE Procedure [dbo].[usp_get_payment]        
+(        
+@CustomerCnic varchar(150)='',        
+@MobileNumber varchar(100)='',        
+@CompanyName varchar(100)='',        
+@OrderRefNo varchar(150)=''        
+)        
+as        
+begin        
+if @CustomerCnic='' or @MobileNumber='' or @CompanyName='' or @OrderRefNo=''        
+begin        
+select '99'ResponseCode,'Required data missing.'ResponseDescription        
+end        
+else        
+begin        
+declare @CustomerId bigint= (select top (1) id from customers where mobile=@MobileNumber and cnic=@CustomerCnic and is_deleted=0)        
+if @CustomerId is null        
+begin        
+select '99'ResponseCode,'Customer not found.'ResponseDescription        
+end        
+else if not exists(select top (1) id from meters where customers_id=@CustomerId and company_name=@CompanyName and is_deleted=0)        
+begin        
+select '99'ResponseCode,'Company not found.'ResponseDescription        
+end        
+else        
+begin        
+        
+declare @Tenure smallint,@OutstandingAmount varchar(20);        
+select top(1) @Tenure=tenure from orders where customers_id=@CustomerId and is_deleted=0        
+select @OutstandingAmount=total_amount_due from financing where customers_id=@CustomerId and is_deleted=0      
+      
+declare @NoOfInstallmentsPaid smallint, @OutstandingTenure smallint, @TotalInstallmentPaid varchar(20),@LastInstallmentPaid varchar(20),@LastEMIPaidDate varchar(20),@RepaymentAccount varchar(24)        
+        
+select @TotalInstallmentPaid=isnull(sum(cast(amount as decimal(18,2))),0),@NoOfInstallmentsPaid=count(1) from repayments where customers_id=@CustomerId and is_deleted=0     
+      
+       
+--select top (1) @LastInstallmentPaid=amount,@RepaymentAccount=account ,@LastEMIPaidDate=convert(varchar(10),created_at,23) from repayments where customers_id=@CustomerId and is_deleted=0 order by created_at desc        
+
+select top (1) @LastInstallmentPaid=amount ,@LastEMIPaidDate=convert(varchar(10),created_at,23) from repayments where customers_id=@CustomerId and is_deleted=0 order by created_at desc        
+select top(1) @RepaymentAccount=NCANo from tbl_FRP_Request where CustomerID=@CustomerId and IsActive=1    
+select @OutstandingTenure=@Tenure-@NoOfInstallmentsPaid;        
+      
+select '200'ResponseCode,'Success'ResponseDescription, @OutstandingAmount OutstandingAmount,@OutstandingTenure OutstandingTenure,@TotalInstallmentPaid TotalInstallmentPaid,@LastInstallmentPaid LastInstallmentPaid,@LastEMIPaidDate LastEMIPaidDate,@Tenure Tenure,@RepaymentAccount CustomerRepaymentAccount        
+end        
+end        
+end 
+GO
+/****** Object:  StoredProcedure [dbo].[usp_get_repayment_schedule]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_get_repayment_schedule '4430339164944','03332504533','K electric','LD2785336237','1231234234','138402611'        
+CREATE procedure [dbo].[usp_get_repayment_schedule]        
+(        
+@CustomerCnic varchar(50),                          
+@MobileNumber varchar(50),                          
+@CompanyName varchar(50),                          
+@LdRefNo varchar(50),            
+@OrderID varchar(50),            
+@BillConsumerNumber varchar(50)        
+)        
+as        
+begin        
+declare @CustomerId bigint,@OrdersId bigint,@ResponseCode varchar(20),@ResponseDescription nvarchar(255);        
+select @CustomerId=CustomerId,@OrdersId=OrderId,@ResponseCode=ResponseCode,@ResponseDescription=ResponseMessage from fn_check_repayment_schedule(@CustomerCnic,@MobileNumber,@CompanyName,@LdRefNo,@OrderID,@BillConsumerNumber)        
+if @ResponseCode<>'200'        
+begin        
+select @ResponseCode ResponseCode,@ResponseDescription ResponseDescription        
+select ''  
+end        
+else        
+begin        
+select @ResponseCode ResponseCode,@ResponseDescription ResponseDescription      
+select row_number() over (order by orders_id) SrNo,format(billing_month,'dd-MMM-yy') BillingMonth, Emi,outstanding_amount outstandingAmount
+from payment_schedule where orders_id=@OrdersId order by billing_month      
+        
+end        
+end 
+GO
+/****** Object:  StoredProcedure [dbo].[usp_get_soap_templates]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_get_soap_templates  
+CREATE Procedure [dbo].[usp_get_soap_templates]
+as    
+begin    
+  select Title,[Url],Envelope,Header,Body,Verify,Request from soap_templates where is_deleted=0  
+end
+
+GO
+/****** Object:  StoredProcedure [dbo].[usp_http_client]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_http_client '','','','','','','','','','','','','',''
+CREATE Procedure [dbo].[usp_http_client]
+(
+@Id varchar(100)='',
+@ProcessingCode varchar(50)='',
+@Request nvarchar(max)='',
+@Response nvarchar(max)='',
+@HttpStatus varchar(20)='',
+@ResponseCode varchar(10)='',
+@ResponseMessage nvarchar(255)='',
+@RequestDateTime datetime='',
+@ResponseDateTime datetime='',
+@Source varchar(500)='',
+@Url varchar(1000)='',
+@PublicIp varchar(50)='',
+@Guid varchar(50)='',
+@JourneyId varchar(50)=''
+)
+as
+begin
+insert into api_logs
+(external_id,processing_code,request_payload,response_payload,http_status_code,response_code,response_message,request_date_time,response_date_time,[source],[url],public_ip,[guid],journey_id) 
+values
+(@Id,@ProcessingCode,@Request,@Response,@HttpStatus,@ResponseCode,@ResponseMessage,@RequestDateTime,@ResponseDateTime,@Source,@Url,@PublicIp,@Guid,@JourneyId)
+end
+
+GO
+/****** Object:  StoredProcedure [dbo].[usp_new_disbursement]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_new_disbursement '','','','','',''                        
+CREATE Procedure [dbo].[usp_new_disbursement]                        
+(                     
+@OrderRef varchar(150)='',                    
+@TransactionId varchar(150)='',                        
+@AgreementStatus NVARCHAR(50)='',                        
+@VendorAcceptanceStatus NVARCHAR(100)='',                        
+@CustomerAcceptanceStatus NVARCHAR(100) ='',                
+@ModeOfFinancing varchar(20)='',                
+@BillConsumerNumber varchar(50)='',          
+@CustomerCnic varchar(15)='',        
+@BillReferenceNumber varchar(50)='',                
+@VendorIBAN varchar(24)='',                
+@FanQty varchar(20)='',                
+@TotalFanCost varchar(20)='',                
+@Tenure varchar(20)='',                
+@OrderAmount varchar(20)='',            
+@LdRef varchar(100)=''            
+)                        
+as     
+begin                        
+declare @OrderId bigint,@VendorId bigint,@CustomerId bigint,@AssignedLimit varchar(20),@FinancingAmount varchar(20),@FirstInstallment varchar(20),    
+@SubsequentInstallment varchar(20),@AmountDue varchar(20), @ProposalNo varchar(50),@FinancingAccountNumber varchar(24),@ResponseCode varchar(20),@ResponseMessage nvarchar(255);        
+    
+select                  
+@OrderId=OrderId,                  
+@VendorId=VendorId,                  
+@CustomerId=CustomerId,                  
+@AssignedLimit=AssignedLimit,                  
+@FinancingAmount=FinancingAmount,                  
+@FirstInstallment=FirstInstallment,                  
+@SubsequentInstallment=SubsequentInstallment,                
+@AmountDue=AmountDue,              
+@ProposalNo=ProposalNo,  
+@FinancingAccountNumber=FinancingAccountNumber,  
+@ResponseCode=ResponseCode,                  
+@ResponseMessage=ResponseMessage                  
+from fn_validate_disbursement(@OrderRef,@TransactionId,@AgreementStatus,@VendorAcceptanceStatus,@CustomerAcceptanceStatus,@ModeOfFinancing,    
+@BillConsumerNumber,@BillReferenceNumber,@CustomerCnic,@VendorIBAN,@FanQty,@TotalFanCost,@Tenure,@OrderAmount)          
+                    
+if @ResponseCode<>'200'                    
+begin                    
+select @ResponseCode ResponseCode,@ResponseMessage ResponseDescription                    
+end                    
+                        
+else                        
+begin                        
+begin try                        
+begin tran                        
+update                        
+orders                        
+set                        
+order_id=@OrderRef,                    
+product_agreement=@AgreementStatus,                        
+vendor_acceptance_status=@VendorAcceptanceStatus,                        
+customer_acceptance_status=@CustomerAcceptanceStatus,            
+ld_ref=@ProposalNo,            
+modified_at=GETDATE()                        
+where transaction_id=@TransactionId                        
+    
+delete from payment_schedule where orders_id=@OrderId    
+    
+DECLARE @DisbursementDate DATE = CAST(GETDATE() AS DATE);     
+DECLARE @LastBillingDate DATE, @LastDueDate DATE, @LagDays INT, @BillingDay INT;    
+SELECT TOP 1    
+    @LastBillingDate = billing_date,    
+    @LastDueDate = due_date    
+FROM monthly_bills    
+WHERE customers_id = @CustomerId    
+ORDER BY billing_date DESC;          
+    
+    
+SET @LagDays = DATEDIFF(DAY, @LastBillingDate, @LastDueDate);    
+SET @BillingDay = DAY(@LastBillingDate);    
+    
+DECLARE @CurrentBillingDate DATE;    
+    
+    
+BEGIN    
+    BEGIN TRY    
+        SET @CurrentBillingDate = DATEFROMPARTS(YEAR(@DisbursementDate), MONTH(@DisbursementDate), @BillingDay);    
+    END TRY    
+    BEGIN CATCH    
+            
+        SET @CurrentBillingDate = EOMONTH(@DisbursementDate);    
+    END CATCH    
+END    
+    
+    
+DECLARE @BillingToUse DATE;    
+    
+IF @CurrentBillingDate < @DisbursementDate    
+BEGIN    
+        
+    SET @BillingToUse = DATEADD(MONTH, 1, @CurrentBillingDate);    
+END    
+ELSE    
+BEGIN    
+        
+    IF DATEDIFF(DAY, @DisbursementDate, @CurrentBillingDate) <= 6    
+        SET @BillingToUse = DATEADD(MONTH, 1, @CurrentBillingDate);    
+    ELSE    
+        SET @BillingToUse = @CurrentBillingDate;    
+END    
+    
+    
+DECLARE @DueDate DATE = DATEADD(DAY, @LagDays, @BillingToUse);    
+    
+    
+    
+ WITH DueDates AS (    
+    SELECT     
+        1 AS InstallmentNumber,    
+        @DueDate AS DueDate    
+    UNION ALL    
+    SELECT     
+        InstallmentNumber + 1,    
+        DATEADD(MONTH, 1, DueDate)    
+    FROM DueDates    
+    WHERE InstallmentNumber < @Tenure    
+)    
+insert into payment_schedule(orders_id,billing_month)    
+SELECT @OrderId,DueDate    
+FROM DueDates    
+OPTION (MAXRECURSION 100);     
+update payment_schedule set emi=@FirstInstallment where orders_id=@OrderId and billing_month=(select top (1) billing_month from payment_schedule order by billing_month)    
+update payment_schedule set emi=@SubsequentInstallment where orders_id=orders_id and emi is null    
+    
+    
+    
+    
+DECLARE @total_amount DECIMAL(18,2) = cast(@AmountDue as decimal(18,2));    
+    
+;WITH RunningBalance AS (    
+    SELECT    
+        ps.orders_id,    
+        ps.billing_month,    
+        ps.emi,    
+        @total_amount - SUM(cast(ps.emi as decimal(18,2))) OVER (    
+            PARTITION BY ps.orders_id    
+            ORDER BY ps.billing_month    
+            ROWS UNBOUNDED PRECEDING    
+        ) AS CalculatedOutstanding    
+    FROM payment_schedule ps    
+    WHERE ps.orders_id = @OrderId AND ps.is_deleted = 0    
+)    
+    
+UPDATE ps    
+SET ps.outstanding_amount = rb.CalculatedOutstanding    
+FROM payment_schedule ps    
+INNER JOIN RunningBalance rb    
+    ON ps.orders_id = rb.orders_id    
+   AND ps.billing_month = rb.billing_month;    
+    
+    
+commit                        
+--select @AssignedLimit AssignedLimit,@FinancingAmount FinancingAmount,@FirstInstallment FirstInstallment,@SubsequentInstallment SubsequentInstallment,@AmountDue AmountDue,@LdRef LdRef, @ResponseCode ResponseCode,@ResponseMessage ResponseDescription      
+    
+select @AssignedLimit AssignedLimit,@FinancingAmount FinancingAmount,@FirstInstallment FirstInstallment,@SubsequentInstallment SubsequentInstallment,@AmountDue AmountDue,@ProposalNo LdRef,@FinancingAccountNumber FinancingAccountNumber, @ResponseCode ResponseCode,@ResponseMessage ResponseDescription          
+  
+end try                        
+begin catch                        
+rollback                        
+select '500' ResponseCode,@ResponseMessage ResponseDescription                    
+end catch                        
+end                        
+                        
+end 
+GO
+/****** Object:  StoredProcedure [dbo].[usp_new_disbursement_validate]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE PROCEDURE [dbo].[usp_new_disbursement_validate]
+    @OrderID VARCHAR(50)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.disbursement_validate WHERE orderID = @OrderID)
+    BEGIN
+        -- Not found
+        SELECT '99' AS ResponseCode, 'Order id does not exist' AS ResponseDescription;
+        RETURN;
+    END
+    
+    -- Check if ldRefNo is NULL for the found orderID
+    IF EXISTS (SELECT 1 FROM dbo.disbursement_validate 
+               WHERE orderID = @OrderID AND ldRefNo IS NULL)
+    BEGIN
+        -- Found but ldRefNo is NULL
+        SELECT '99' AS ResponseCode, 'Order id found but ldRefNo is missing' AS ResponseDescription;
+        RETURN;
+    END
+    
+    -- If we get here, orderID exists and ldRefNo is not NULL
+    SELECT '00' AS ResponseCode, 'ref id found and valid' AS ResponseDescription;
+END;
+GO
+/****** Object:  StoredProcedure [dbo].[usp_new_eligibiltiy]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_new_eligibiltiy '','','','','','','','','','','','','','','',''                                              
+CREATE  Procedure [dbo].[usp_new_eligibiltiy]                                              
+(                                      
+@ConsumerName nvarchar(150)='',                                              
+@MobileNumber varchar(100)='',                                              
+@CustomerCNIC varchar(100)='',                                              
+@CnicIssuanceDate date=null,                                              
+@BankName nvarchar(100)='',                                            
+@FatherName nvarchar(150)='',                                              
+@MonthlyIncome           int=null,                                              
+@CustomerAddress nvarchar(1000)='',                                              
+@City nvarchar(150)='',                                              
+@ResidentialStatus nvarchar(20)='',                                              
+@ModeOfFinancing nvarchar(50)='',                   
+@MobileOperator nvarchar(50)='',                  
+@CompanyName nvarchar(150)='',                                              
+@BillConsumerNumber varchar(150)='',                 
+@BillReferenceNumber varchar(50)='',                
+@MeterNumber varchar(150)='',                                              
+@MeterInstallationDate date=null,                                              
+@TransactionId varchar(150)='',                                              
+@ReferenceNo varchar(100)='',                                      
+@MaxBillAmount int=0,                                             
+@AverageBill varchar(20)='',                                           
+@LatePayments int=0,                                    
+@ProxyIncome varchar(20)='',                                            
+@Threshold varchar(20)='',                                            
+@EligibileIncome int=0,                                    
+@AllowedLimit varchar(20)='',                                            
+@LimitOn nvarchar(100)='',               
+@SessionId varchar(255)='',    
+@Token varchar(max)='',    
+@BillingDetail utt_eligibility_billing Readonly                                
+)                                              
+as                                              
+begin                                              
+begin try                                              
+declare @ResponseCode varchar(10),@ResponseMessage nvarchar(150),@CustomerId bigint,@MeterId bigint,@OrderId bigint,@TokenSessionId bigint;                                              
+select @ResponseCode=ResponseCode,@ResponseMessage=ResponseMessage,@CustomerId=CustomerId,@OrderId=OrderId,@MeterId=MeterId,@TokenSessionId=Id           
+from  fn_check_eligibility(@CustomerCNIC,@MobileNumber,@TransactionId,@BillConsumerNumber,@BillReferenceNumber,@MeterNumber,@SessionId,@Token)                                          
+                
+          
+if @ResponseCode='00'                                           
+begin                                                              
+begin tran               
+if @CustomerId is null                                           
+begin                                            
+                                             
+insert into Customers                                              
+(                                              
+[name],                                              
+mobile,                  
+mobile_operator,                  
+cnic,                                              
+cnic_issue_date,                                              
+bank_name,                                              
+father_name,                                              
+monthly_income,                                              
+[address],                                              
+city,                                              
+residential_status,                                              
+mode_of_financing,  
+bank_session_id  
+)                                              
+values          
+(                                              
+@ConsumerName,                                              
+@MobileNumber,            
+@MobileOperator,                  
+@CustomerCNIC,                                              
+@CnicIssuanceDate,                                              
+@BankName,                                              
+@FatherName,                                              
+@MonthlyIncome,                                              
+@CustomerAddress,                                              
+@City,                                          
+@ResidentialStatus,                                              
+@ModeOfFinancing,  
+@SessionId  
+)                          
+                                  
+set @CustomerId  =(select @@identity);                                              
+                
+insert into meters(customers_id,company_name,consumer_number,bill_reference_number,meter_number,installation_date) values(@CustomerId,@CompanyName,@BillConsumerNumber,@BillReferenceNumber,@MeterNumber,@MeterInstallationDate)                               
+ 
+    
+       
+        
+             
+set @MeterId=(select @@identity);                                    
+                                                                            
+insert into orders(customers_id,transaction_id,reference_no) values(@CustomerId,@TransactionId,@ReferenceNo)                                    
+set @OrderId=(select @@identity);                                    
+                                                                       
+insert into eligibility(customers_id,meters_id,orders_id,max_bill_amount,average_bill_amount,proxy_income,no_of_late_payment,threshold,eligibile_income,assigned_limit,limit_on)                                    
+values(@CustomerId,@MeterId,@OrderId,@MaxBillAmount,@AverageBill,@ProxyIncome,@LatePayments,@Threshold,@EligibileIncome,@AllowedLimit,@LimitOn)                                            
+                                
+insert into monthly_bills (customers_id,meters_id,bill_month,bill_amount,billing_date,due_date,actual_payment_amount, actual_payment_date,late_payment_amount,late_payment_count)                                
+select @CustomerId,@MeterId,bill_month,bill_amount,billing_date,due_date,actual_payment_amount, actual_payment_date,late_payment_amount,late_payment_count from @BillingDetail             
+          
+update transaction_session set is_deleted=1 where customers_id=@CustomerId          
+insert into transaction_session(customers_id,transaction_id,area,[session_id])values(@CustomerId,@TransactionId,'Eligibility',@SessionId)          
+update auth_session set is_deleted=1,modified_at=getdate() where customers_id=@CustomerId                                          
+                                           
+insert into auth_session(customers_id,token_session_id)values(@CustomerId,@TokenSessionId)                                          
+                                   
+commit                                              
+end           
+          
+else                                          
+begin   
+select top(1) @SessionId= bank_session_id from customers where id=@CustomerId and is_deleted=0  
+-- update customers          
+-- update orders          
+-- update eligbility          
+-- update monthly_bills          
+--update auth_session set is_deleted=1,modified_at=getdate() where customers_id=@CustomerId                                          
+--update token_session set is_deleted=1,modified_at=getdate() where is_deleted=0 and id in(select token_session_id from auth_session where customers_id=@CustomerId)                                          
+--insert into auth_session(customers_id,token_session_id)values(@CustomerId,@TokenSessionId)                                        
+--update transaction_session set is_deleted=1 where customers_id=@CustomerId          
+insert into transaction_session(customers_id,transaction_id,area,[session_id])values(@CustomerId,@TransactionId,'Eligibility',@SessionId)                                   
+commit                                                                        
+end          
+end                                
+select @ResponseCode ResponseCode,@ResponseMessage ResponseDescription, @SessionId BankSessionId                                             
+end try                                              
+               
+begin catch                                             
+rollback                                          
+if @CustomerId=''        
+begin        
+set @CustomerId=null        
+end        
+Declare @SPName varchar(100)=(OBJECT_NAME(@@PROCID))                                                                  
+ DECLARE @ErrorMessage NVARCHAR(MAX) = N'None';                                                                      
+ DECLARE @ErrorLine SMALLINT=0;                                                                    
+ DECLARE @ErrorNumber SMALLINT=0;                                   
+ DECLARE @ErrorSeverity SMALLINT=0;                                                                    
+ DECLARE @ErrorState SMALLINT=0;                                                                   
+  SET @ErrorMessage = ERROR_MESSAGE();                                                                      
+  SET @ErrorLine =ERROR_LINE();                                                                    
+  SET @ErrorNumber =ERROR_NUMBER();                                                              
+  SET @ErrorSeverity =ERROR_SEVERITY();                                                                    
+  SET @ErrorState =ERROR_STATE();                  
+EXEC usp_sql_exceptions @CustomerId,@MobileNumber,@CustomerCNIC, @SPName, @ErrorMessage,@ErrorLine,@ErrorNumber,@ErrorSeverity,@ErrorState;                                      
+select '500'ResponseCode,@ErrorMessage ResponseDescription                                            
+end catch                                              
+end 
+GO
+/****** Object:  StoredProcedure [dbo].[usp_new_nadra]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_new_nadra '','','','','','','','','','','','',''
+CREATE Procedure [dbo].[usp_new_nadra]
+(
+@Cnic varchar(15)='',
+@IssueDate varchar(20)='',
+@Code varchar(20)='',
+@Message nvarchar(255)='',
+@Name nvarchar(255)='',
+@MotherName nvarchar(255)='',
+@FatherHusbandName nvarchar(255)='',
+@PresentAddress nvarchar(1000)='',
+@PermanentAddress nvarchar(1000)='',
+@BirthPlace nvarchar(100)='',
+@Expiry varchar(20)='',
+@Dob varchar(20)='',
+@CardType varchar(20)=''
+)
+as
+begin
+if @Cnic<>'' and @IssueDate<>''
+begin
+begin try
+insert into nadra_log(citizen_number,issue_date,code,message) values(@Cnic,@IssueDate,@Code,@Message)
+declare @Id bigint=(select @@IDENTITY)
+if @Code='100'
+begin
+insert into customers_nadra_detail(nadra_log_id,citizen_number,name,mother_name,father_or_husband_name,present_address,permanent_address,birth_place,date_of_expiry,date_of_birth,card_type)
+values
+(@Id,@Cnic,@Name,@MotherName,@FatherHusbandName,@PresentAddress,@PermanentAddress,@BirthPlace,@Expiry,@Dob,@CardType)
+end
+end try
+begin catch
+end catch
+end
+end
+
+GO
+/****** Object:  StoredProcedure [dbo].[usp_new_onboard]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE Procedure [dbo].[usp_new_onboard]      
+(                                           
+@VendorName           NVARCHAR(150)='',                                                        
+@VendorIban           VARCHAR(150)='',                                                        
+@FanModel             VARCHAR(150)='',                                                        
+@FanQty               smallint=0,                                                        
+@ReplacementQty       smallint=0,                                                        
+@OrderAmount          INT=0,                                                        
+@TotalFanCost         int=0,                                                        
+@ReplacementCost int=0,                                        
+@SecurityDeposit      int=0,                                                        
+@Tenure               VARCHAR(20)='',                                                                        
+@ProductAgreement     NVARCHAR(500)='',                                                        
+@SalvageAmount int=0,                                                  
+@NetFinanceingAmount int=0,                                                  
+@ProcessingFee int=0,                                                  
+@ProfitRate varchar(20)='',                                               
+@Kibor varchar(50)='',                                        
+@MonthlyRate varchar(50)='',                                        
+@MusawamahPrice varchar(50)='',                                                
+@Installment varchar(50)='',                                          
+@PMT varchar(50)='',                                        
+@TransactionId   VARCHAR(150)=''                                                                            
+)                                                        
+as                                                 
+begin                                                                                 
+begin try                                                       
+               
+declare @CustomerId bigint,@OrderId bigint,@OrderDateTime datetime;                            
+select top (1) @CustomerId= customers_id,@OrderId=id,@OrderDateTime=created_at from orders where transaction_id=@TransactionId and is_deleted=0                                
+                
+declare @AllowedLimit DECIMAL(18,2), @TotalNetFinancingAmount decimal (18,2);                
+select @AllowedLimit=TRY_CAST(assigned_limit as decimal(18,2)) from eligibility where customers_id=@CustomerId and is_deleted=0                
+select @TotalNetFinancingAmount =TRY_CAST(@NetFinanceingAmount as decimal(18,2));                
+                
+if @CustomerId is null or @OrderId is null                
+begin               
+select '99' ResponseCode,'Customer or order not found' ResponseDescription                
+end                
+                
+if @AllowedLimit is null or @TotalNetFinancingAmount is null or @TotalNetFinancingAmount>@AllowedLimit                
+begin                
+select '99' ResponseCode,'Total order amount '''+cast (@TotalNetFinancingAmount as varchar(20))+''' exceeds allowed limit '''+cast(@AllowedLimit as varchar(20))+'' ResponseDescription              
+end
+
+if (select DATEDIFF(day,getdate(),@OrderDateTime))>30 
+begin
+select '99' ResponseCode,'Assigned limit has expired.' ResponseDescription                 
+end
+
+else                
+begin                
+begin tran                  
+                         
+declare @VendorId bigint=(select top (1) id from vendors where [name]=@VendorName and is_deleted=0)                                                  
+if @VendorId is null or @VendorId=0                                                        
+begin                                                        
+insert into vendors([name],iban)values(@VendorName,@VendorIban)                                                        
+set @VendorId =(select @@IDENTITY)                                                        
+end                                                        
+                                               
+update                                                        
+orders                                                      
+set                                                         
+vendors_id=@VendorId,                                                        
+model=@FanModel,                           
+quantity=@FanQty,             
+replacement_quantity=@ReplacementQty,                                             
+order_amount=@OrderAmount,                                           
+total_cost=@TotalFanCost,                                            
+replacement_cost=0,                                        
+security_deposit=@SecurityDeposit,                                               
+Tenure=@Tenure,                      
+product_agreement=@ProductAgreement,                                                        
+modified_at=getdate()                                                      
+where Id=@OrderId and is_deleted=0                                        
+                                              
+if not exists(select top (1) customers_id from financing where customers_id=@CustomerId and is_deleted=0)                                                
+begin                                  
+                  
+DECLARE @TotalAmount DECIMAL(18,2);                  
+                  
+-- Convert varchar to decimal for calculation                  
+SET @TotalAmount = CAST(@PMT AS DECIMAL(18,2)) * (cast(@Tenure as int) - 1);                  
+                  
+-- Add first month's amount (also convert to decimal)                  
+SET @TotalAmount = @TotalAmount + CAST(@Installment AS DECIMAL(18,2));                  
+                  
+insert into financing(customers_id,vendors_id,orders_id,salvage_value,net_financing_amount,processing_fee,profit_rate,kibor_value,monthly_rate,musawamah_price,first_month_installment,subsequent_monthly_installment,total_amount,total_amount_due)          
+   
+                
+      
+         
+values(@CustomerId,@VendorId,@OrderId,@SalvageAmount,@NetFinanceingAmount,@ProcessingFee,@ProfitRate,@Kibor,@MonthlyRate,@MusawamahPrice,@Installment,@PMT,@TotalAmount,@TotalAmount)                                                  
+                                        
+end                                                                                  
+commit                                                        
+select '200' ResponseCode,'Success' ResponseDescription,net_financing_amount,processing_fee,profit_rate,first_month_installment,@Tenure Tenure from financing where customers_id=(select top (1) customers_id from orders where id=@OrderId and is_deleted=0) and is_deleted=0                    
+end                               
+end try                                                        
+begin catch                                                        
+rollback          
+if @CustomerId=''    
+begin    
+set @CustomerId=null    
+end    
+Declare @SPName varchar(100)=(OBJECT_NAME(@@PROCID))                                                              
+ DECLARE @ErrorMessage NVARCHAR(MAX) = N'None';                                                                  
+ DECLARE @ErrorLine SMALLINT=0;                                                                
+ DECLARE @ErrorNumber SMALLINT=0;                               
+ DECLARE @ErrorSeverity SMALLINT=0;                                                                
+ DECLARE @ErrorState SMALLINT=0;                                                               
+  SET @ErrorMessage = ERROR_MESSAGE();                                                                  
+  SET @ErrorLine =ERROR_LINE();                                                                
+  SET @ErrorNumber =ERROR_NUMBER();                                                          
+  SET @ErrorSeverity =ERROR_SEVERITY();                                                                
+  SET @ErrorState =ERROR_STATE();              
+EXEC usp_sql_exceptions @CustomerId,'','', @SPName, @ErrorMessage,@ErrorLine,@ErrorNumber,@ErrorSeverity,@ErrorState;        
+select '500' ResponseCode,ERROR_MESSAGE() ResponseDescription                                                        
+                                                        
+end catch                                                        
+end 
+GO
+/****** Object:  StoredProcedure [dbo].[usp_new_otp]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ --usp_new_otp '3520168143568','03234333298','123456'          
+CREATE Procedure [dbo].[usp_new_otp]          
+(          
+@CustomerCnic varchar(150),          
+@MobileNumber varchar(150),          
+@Otp varchar(100)          
+)          
+as          
+begin          
+declare @CustomerId bigint,@ResponseCode varchar(20),@ResponseMessage nvarchar(255),@Expiry smallint;          
+select @CustomerId=CustomerId,@ResponseCode=ResponseCode,@ResponseMessage=ResponseMessage,@Expiry=Expiry from fn_validate_generate_otp(@MobileNumber,@CustomerCnic)          
+if @ResponseCode <>'00'          
+begin          
+select @ResponseCode ResponseCode,@ResponseMessage ResponseDescription          
+end          
+else          
+begin          
+begin try          
+begin tran          
+update customer_otp set is_expired=1,modified_at=getdate() where customers_id=@CustomerId and is_verified=0 and is_expired=0 and is_deleted=0      
+insert into customer_otp(customers_id,otp)values(@CustomerId,@Otp)          
+commit          
+select @ResponseCode ResponseCode,@ResponseMessage ResponseDescription,@Expiry ExpiresIn         
+end try          
+begin catch          
+rollback          
+select '500'ResponseCode,'Exception'ResponseDescription          
+end catch          
+          
+end          
+          
+end 
+
+GO
+/****** Object:  StoredProcedure [dbo].[usp_new_pmd]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_new_pmd '','','','',''
+CREATE Procedure [dbo].[usp_new_pmd]
+(
+@Cnic varchar(15)='',
+@Mobile varchar(15)='',
+@Status varchar(20)='',
+@ResponseCode varchar(20)='',
+@Message nvarchar(255)=''
+)
+as
+begin
+if @Cnic<>'' and @Mobile<>''
+begin try
+insert into pmd_log(cnic,msisdn,status,response_code,message)values(@Cnic,@Mobile,@Status,@ResponseCode,@Message)
+declare @Id bigint=(select @@IDENTITY)
+if @Status='00' and @ResponseCode='01'
+begin
+insert into customers_pmd_detail(pmd_log_id,cnic,msisdn)values(@Id,@Cnic,@Mobile)
+end
+end try
+begin catch
+end catch
+end
+
+GO
+/****** Object:  StoredProcedure [dbo].[usp_new_repayment]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_new_repayment '','','','',''          
+CREATE Procedure [dbo].[usp_new_repayment]          
+(          
+@CustomerCnic varchar(150)='',          
+@MobileNumber varchar(100)='',          
+@BillConsumerNumber varchar(100)='',          
+@RepaymentAccount varchar(150)='',          
+@RepaymentAmount varchar(20)        
+)          
+as          
+begin          
+declare @CustomerId bigint, @MeterId bigint,@Tenure tinyint,@PaidInstallment tinyint,@OutstandingAmount varchar(20),@LdRefNo varchar(50),@ResponseCode varchar(10),@ResponseDescription nvarchar(150);          
+select @ResponseCode=ResponseCode,@ResponseDescription=ResponseMessage,@CustomerId=CustomerId,@MeterId=MeterId,@OutstandingAmount=OutstandingAmount,@Tenure=Tenure,@LdRefNo=LdRefNo from fn_check_repayment(@BillConsumerNumber,@RepaymentAmount)          
+if @ResponseCode<>'200'          
+begin          
+select @ResponseCode ResponseCode,@ResponseDescription ResponseDescription          
+end          
+else          
+begin          
+begin try          
+begin tran          
+insert into repayments(customers_id,meters_id,account,amount,outstanding_amount)values(@CustomerId,@MeterId,@RepaymentAccount,@RepaymentAmount,@OutstandingAmount)           
+update financing set total_amount_due=@OutstandingAmount where customers_id=@CustomerId      
+select @PaidInstallment=count(1) from repayments where customers_id=@CustomerId and is_deleted=0
+set @Tenure=@Tenure-@PaidInstallment
+select @ResponseCode ResponseCode,@ResponseDescription ResponseDescription,@Tenure Tenure,@OutstandingAmount OutstandingAmount,@LdRefNo LdRefNo         
+commit          
+end try          
+begin catch          
+rollback          
+select '500'ResponseCode,'Exception'ResponseDescription          
+end catch          
+end          
+end 
+GO
+/****** Object:  StoredProcedure [dbo].[usp_pre_eligbility_validation]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE Procedure [dbo].[usp_pre_eligbility_validation]  
+(  
+@Cnic varchar(15)='',  
+@Mobile varchar(15)=''  
+)  
+as  
+begin  
+declare @ResponseCode varchar(20) ='200',@ResponseMessage nvarchar(250)='Success';  
+if exists(select top (1) mobile from black_list where cnic=@Cnic or mobile=@Mobile  and is_deleted=0)  
+begin  
+set @ResponseCode='99';  
+set @ResponseMessage='Customer is blocked.'  
+end  
+else  
+begin  
+  
+declare @ProceedNadra bit=1,@ProceedPmd bit=1, @NadraMessage nvarchar(200),@PmdMessage nvarchar(200);  
+if exists(select top (1) nadra_log_id from customers_nadra_detail where citizen_number=@Cnic and is_deleted=0)  
+begin   
+set @ProceedNadra=0;  
+end  
+  
+if exists(select top (1) pmd_log_id from customers_pmd_detail where cnic=@Cnic and msisdn=@Mobile and is_deleted=0)  
+begin  
+select @ProceedPmd=0  
+end  
+  
+if @ProceedNadra=1  
+begin  
+declare @TodayNadraCount tinyint,@AllowedNadraCount tinyint;  
+select @AllowedNadraCount=[value] from configs where title='Nadra' and is_deleted=0  
+select @TodayNadraCount=count(1) from nadra_log where citizen_number=@Cnic and is_deleted=0  
+if @TodayNadraCount>=@AllowedNadraCount  
+begin  
+set @ResponseCode='99';  
+set @NadraMessage='Nadra limit exceed. Please try again tomorrow.'  
+end  
+end  
+  
+if @ProceedPmd=1  
+begin  
+declare @TodayPmdCount tinyint,@AllowedPmdCount tinyint;  
+select @AllowedPmdCount=[value] from configs where title='Pmd' and is_deleted=0  
+select @TodayPmdCount=count(1) from customers_pmd_detail where cnic=@Cnic and msisdn=@Mobile and is_deleted=0  
+if @TodayPmdCount>=@AllowedPmdCount  
+begin  
+set @ResponseCode='99';  
+set @PmdMessage='Pmd limit exeeded. Please try again tomorrow.' -- Confirm if only x numbers of pmd hit allowed overall  
+end  
+end  
+end  
+select @ResponseCode ResponseCode,@ResponseMessage ResponseMessage,@ProceedNadra ProceedNadra,@ProceedPmd ProceedPmd  
+end
+
+GO
+/****** Object:  StoredProcedure [dbo].[usp_sql_exceptions]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_sql_exceptions null,'','','test','',0,0,0,0  
+CREATE    PROCEDURE [dbo].[usp_sql_exceptions]  
+(   
+@CustomerId bigint=null,  
+@CustomerMobile varchar(100)='',  
+@CustomerCnic varchar(300)='',  
+@Name varchar(300)='',  
+@Message varchar(max),  
+@Line smallint=0,  
+@Number smallint =0,  
+@Severity smallint=0,  
+@State smallint =0    
+)        
+AS        
+BEGIN        
+INSERT INTO  
+sql_exception  
+(   
+customers_id,  
+customer_mobile,  
+customer_cnic,  
+sp_name,  
+exception_message,  
+line,  
+number,  
+severity,  
+[state]  
+)        
+VALUES        
+(  
+@CustomerId,  
+@CustomerMobile,  
+@CustomerCnic,  
+@Name,  
+@Message,  
+@Line,  
+@Number,  
+@Severity,  
+@State  
+)  
+END; 
+GO
+/****** Object:  StoredProcedure [dbo].[usp_update_generate_auth]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_update_generate_auth 0,''  
+CREATE Procedure [dbo].[usp_update_generate_auth]  
+(  
+@Id bigint=0,  
+@Token varchar(1000)=''  
+)  
+as  
+begin  
+if not exists(select top (1) Id from token_session where id=@Id and is_deleted<>1)  
+begin  
+select '03'ResponseCode,'Your application cannot be processed at the moment. Please try again later.'ResponseDescription  
+end  
+else  
+begin  
+update token_session set token=@Token,modified_at=getdate() where id=@Id  
+select '200'ResponseCode,'Session'ResponseDescription  
+end  
+end
+
+GO
+/****** Object:  StoredProcedure [dbo].[usp_validate_credentials]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_validate_credentials 'Abpl_FRP','abpL@2520#' 
+CREATE Procedure [dbo].[usp_validate_credentials]  
+(  
+@UserName varchar(255)='',
+@Password varchar(255)=''
+)  
+as  
+begin  
+
+if not exists(select top (1) Id from generate_auth where [user_name] COLLATE Latin1_General_CS_AS=@UserName and [password] COLLATE Latin1_General_CS_AS=@Password and is_deleted=0)          
+begin          
+select '03'ResponseCode,'Your application cannot be processed at the moment. Please try again later.'ResponseMessage          
+end
+else          
+begin          
+select '00'ResponseCode,'Success'ResponseDescription
+end          
+end  
+
+
+    
+GO
+/****** Object:  StoredProcedure [dbo].[usp_validate_pmd_nadra]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_validate_pmd_nadra '3520168143567','03234333299'        
+CREATE Procedure [dbo].[usp_validate_pmd_nadra]        
+(    
+@TransactionId varchar(20)='',    
+@Cnic varchar(150)='',        
+@Mobile varchar(15)=''        
+)        
+as        
+begin       
+declare @ResponseCode varchar(20),@ResponseMessage nvarchar(255);    
+select @ResponseCode=ResponseCode,@ResponseMessage=ResponseMessage from fn_validate_customer_by_transaction(@TransactionId,@Cnic,@Mobile)    
+    
+if @ResponseCode<>'00'    
+begin    
+select @ResponseCode ResponseCode,@ResponseMessage ResponseMessage    
+end    
+else    
+begin    
+declare @PmdLimitExceeded bit=0,@NadraLimitExceeded bit=0;    
+if @Cnic='' or @Mobile=''        
+begin        
+select '99'ResponseCode,'Mobile/Cnic missing.'ResponseMessage        
+end        
+        
+else if exists (select top(1) is_deleted from black_list where cnic=@Cnic or mobile=@Mobile and is_deleted=0)        
+begin        
+select '99'ResponseCode,'Mobile/Cnic is black listed.'ResponseMessage        
+end        
+else        
+begin        
+declare @Pmd bit=0,@Nadra bit =0,@Expiry varchar(20),@Dob varchar(20);        
+if exists (select top 1 pmd_log_id from customers_pmd_detail where cnic= @Cnic and msisdn=@Mobile and is_deleted=0)        
+begin        
+set @Pmd=1        
+end        
+select top(1) @Expiry= date_of_expiry,@Dob=date_of_birth from customers_nadra_detail where citizen_number=@Cnic and is_deleted=0      
+if @Expiry is not null and @Expiry<>''      
+begin        
+set @Nadra=1        
+end     
+    
+if @Pmd=0    
+begin    
+declare @pmdRequest int=(select count(1) from pmd_log where (cnic=@Cnic or msisdn=@Mobile) and is_deleted=0)    
+declare @AllowedPmd int=(select [value] from configs where title='Pmd' and is_deleted=0)    
+if @pmdRequest>=@AllowedPmd    
+begin    
+set @PmdLimitExceeded=1;    
+end    
+end    
+    
+if @Nadra=0    
+begin    
+declare @nadraRequest int=(select count(1) from nadra_log where citizen_number=@Cnic and is_deleted=0)    
+declare @AllowedNadra int=(select [value] from configs where title='Nadra' and is_deleted=0)    
+if @nadraRequest>=@AllowedNadra    
+begin    
+set @NadraLimitExceeded=1;    
+    
+end    
+end    
+    
+if @PmdLimitExceeded=1    
+begin    
+select '99'ResponseCode,'Pmd limit has been exceeded.'ResponseMessage,@Nadra NadraVerified,@Pmd PmdVerified,@Expiry CnicExpiry        
+    
+end    
+else if @NadraLimitExceeded=1    
+begin    
+select '99'ResponseCode,'Nadra limit has been exceeded. Please try again tomorrow.'ResponseMessage,@Nadra NadraVerified,@Pmd PmdVerified,@Expiry CnicExpiry        
+    
+end    
+else    
+begin    
+select '00'ResponseCode,'Success'ResponseMessage,@Nadra NadraVerified,@Pmd PmdVerified,@Expiry CnicExpiry,@Dob BirthDate        
+end    
+end        
+end    
+end    
+  
+GO
+/****** Object:  StoredProcedure [dbo].[usp_validate_session]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_validate_session '','','','1234567891234','0cb3c5c0-8be1-4617-bab0-8a5f9817d8ab','','Loan'    
+CREATE Procedure [dbo].[usp_validate_session]  
+(            
+@TransactionId varchar(20)='',      
+@BillReferenceNo varchar(50)='',    
+@Cnic varchar(15)='',        
+@Mobile varchar(15)='',        
+@Session varchar(255)='',
+@Token varchar(max)='',
+@Endpoint varchar(20)=''      
+)            
+as            
+begin            
+declare @ResponseCode varchar(20),@ResponseMessage nvarchar(255);            
+select @ResponseCode=ResponseCode,@ResponseMessage=ResponseMessage from fn_validate_session(@TransactionId,@Cnic,@Mobile,@BillReferenceNo,@Session,@Token,@Endpoint)            
+select @ResponseCode ResponseCode, @ResponseMessage ResponseDescription            
+end     
+GO
+/****** Object:  StoredProcedure [dbo].[usp_validate_token]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_validate_token
+CREATE Procedure [dbo].[usp_validate_token]
+(
+@Token varchar(max)=''
+)
+as
+begin
+declare @ResponseCode varchar(20),@ResponseMessage nvarchar(255);
+select @ResponseCode=ResponseCode,@ResponseMessage=ResponseMessage from fn_validate_token(@Token)
+select @ResponseCode ResponseCode, @ResponseMessage ResponseDescription
+end
+
+GO
+/****** Object:  StoredProcedure [dbo].[usp_validate_token_and_creds]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+--usp_validate_token_and_creds'','',''    
+CREATE Procedure [dbo].[usp_validate_token_and_creds]    
+(   
+@UserName varchar(50)='',  
+@Password varchar(100)='',  
+@Token varchar(max)=''    
+)    
+as    
+begin    
+if @Token='' or @Username='' or @Password=''          
+begin          
+select '03'ResponseCode,'Your application cannot be processed at the moment. Please try again later.'ResponseDescription         
+return          
+end          
+          
+if not exists(select top (1) id from token_session where token=@Token and is_deleted=0 order by created_at desc)          
+begin          
+select '03'ResponseCode,'Your application cannot be processed at the moment. Please try again later.'ResponseDescription          
+end   
+  
+if not exists(select top (1) Id from generate_auth where [user_name] COLLATE Latin1_General_CS_AS=@UserName and [password] COLLATE Latin1_General_CS_AS=@Password and is_deleted=0)              
+begin  
+select '03'ResponseCode,'Your application cannot be processed at the moment. Please try again later.'ResponseDescriptionend    
+end         
+else          
+begin    
+select '00'ResponseCode,'Success.'ResponseDescription        
+end   
+end 
+GO
+/****** Object:  StoredProcedure [dbo].[usp_validate_token_session]    Script Date: 8/3/2025 11:34:00 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+  
+--usp_validate_token_session '','','','1234567891234','0cb3c5c0-8be1-4617-bab0-8a5f9817d8ab','token','Loan'
+CREATE Procedure [dbo].[usp_validate_token_session]        
+(        
+@TransactionId varchar(20)='',  
+@BillReferenceNo varchar(50)='',
+@Cnic varchar(15)='',    
+@Mobile varchar(15)='',    
+@Session varchar(255)='',        
+@Token varchar(max)='',  
+@Endpoint varchar(20)=''  
+)        
+as        
+begin        
+declare @ResponseCode varchar(20),@ResponseMessage nvarchar(255);        
+select @ResponseCode=ResponseCode,@ResponseMessage=ResponseMessage from fn_validate_token_session(@TransactionId,@Cnic,@Mobile,@BillReferenceNo,@Session,@Token,@Endpoint)        
+select @ResponseCode ResponseCode, @ResponseMessage ResponseDescription        
+end 
+
+GO
