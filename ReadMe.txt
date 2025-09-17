@@ -88,3 +88,20 @@ docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=MySecure!Password" -p 1433:1
 
 =>Note: You may run the Container without mount drive as well (Not recommended)
 docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=MySecure!Password" -p 1433:1433   --name sql2025 -d mcr.microsoft.com/mssql/server:2025-latest
+
+
+#==========================
+#Step 4
+#=========================
+
+=>Create a new file docker-compose.yml at the root of your soluciton
+
+=>Setup your service(s) configuration
+
+=>Setup SQL Configuration
+
+=>Now, make sure previous image are stopped or else, change the ports in docker-compose accordingly, else you will get error while running the compose file
+
+=>Now, run the compose file using below command
+
+docker compose up --build

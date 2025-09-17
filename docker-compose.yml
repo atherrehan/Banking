@@ -1,0 +1,26 @@
+version: "3.9"
+services:
+  fanfinancing-api:
+    build:
+      context: .
+      dockerfile: Banking.FanFinancing.APIs/Dockerfile
+    ports:
+      - "5501:5501"   # API exposed on same port you use locally
+    depends_on:
+      - sql2025
+    environment:
+      # Override connection string to point to sql2025 container
+      ConnectionStrings__AlBarakaAppConnectionString: "Server=sql2025;Database=Your_Db_Name;User Id=sa;Password=MySecure!Password;TrustServerCertificate=True;Encrypt=True"
+
+  sql2025:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "MySecure!Password"
+    ports:
+      - "1433:1433"   # Expose SQL Server to host
+    volumes:
+      - sql2025data:/var/opt/mssql
+
+volumes:
+  sql2025data:
