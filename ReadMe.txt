@@ -72,3 +72,19 @@ http://localhost:5501/swagger/index.html
 
 =>Create a new file named .dockerignore in the root of your project directory
 docker run -d -p 5501:5501 --name fanfinancing-container fanfinancing-api
+
+
+
+#==========================
+Step 3
+#=========================
+
+=> Pull the SQL Server image from Docker Hub 
+#Pull the SQL Server 2025 Preview Image
+docker pull mcr.microsoft.com/mssql/server:2025-latest
+
+=>Run the Container with mount drive
+docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=MySecure!Password" -p 1433:1433 --name sql2025 -v sql2025data:/var/opt/mssql -d mcr.microsoft.com/mssql/server:2025-latest
+
+=>Note: You may run the Container without mount drive as well (Not recommended)
+docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=MySecure!Password" -p 1433:1433   --name sql2025 -d mcr.microsoft.com/mssql/server:2025-latest
